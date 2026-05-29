@@ -1,0 +1,8 @@
+.ant-form-item { margin-bottom: 16px !important; }
+.ant-tag { border-radius: 4px !important; font-size: 11px !important; font-weight: 600 !important; }
+h4, .ant-typography h4 { font-size: 18px !important; font-weight: 700 !important; }
+h5, .ant-typography h5 { font-size: 14px !important; font-weight: 600 !important; text-transform: uppercase !important; letter-spacing: 0.5px !important; }
+.demo-guide { position: fixed; bottom: 24px; right: 24px; width: 320px; background: #fff; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); z-index: 1000; overflow: hidden; }
+.demo-guide-header { background: linear-gradient(135deg, #1890ff, #722ed1); color: #fff; padding: 10px 16px; font-size: 13px; font-weight: 600; }
+.demo-guide-body { padding: 16px; }
+.demo-guide-step { font-size: 13px; color: #595959; line-height: 1.6; }

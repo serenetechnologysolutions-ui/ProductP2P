@@ -1,0 +1,4 @@
+{"timestamp":"2026-05-26T04:33:42.434Z","level":"SECURITY","message":"Failed login attempt - wrong password","email":"vendor1@tatasteel.com","ip":"::1","userId":"aac04255-efde-4a8a-924e-cf2335e09025"}
+{"timestamp":"2026-05-26T04:34:01.692Z","level":"SECURITY","message":"Failed login attempt - wrong password","email":"vendor1@tatasteel.com","ip":"::1","userId":"aac04255-efde-4a8a-924e-cf2335e09025"}
+{"timestamp":"2026-05-26T05:28:54.511Z","level":"SECURITY","message":"Failed login attempt - wrong password","email":"vendor1@tatasteel.com","ip":"::1","userId":"aac04255-efde-4a8a-924e-cf2335e09025"}
+{"timestamp":"2026-05-26T10:08:03.673Z","level":"SECURITY","message":"Failed login attempt - wrong password","email":"vendor1@tatasteel.com","ip":"::1","userId":"aac04255-efde-4a8a-924e-cf2335e09025"}
