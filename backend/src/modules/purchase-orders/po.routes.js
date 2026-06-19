@@ -40,11 +40,20 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
 
 // POST /api/purchase-orders (admin creates PO for testing)
 router.post('/', authenticate, requireRole('mdm_admin', 'procurement_admin'), asyncHandler(async (req, res) => {
-  const { po_number, vendor_id, total_amount, line_items, buyer_name, buyer_address, gstin, state_name, state_code, po_date, terms_of_payment, validity_date } = req.body;
+  const {
+    po_number, vendor_id, total_amount, line_items, buyer_name, buyer_address, gstin, state_name, state_code, po_date, terms_of_payment, validity_date,
+    contract_id, incoterms, cost_center, project_code, budget_code, delivery_schedule_json, partial_delivery_allowed_flag, retention_percentage,
+  } = req.body;
   const poId = uuidv4();
   await pool.query(
-    'INSERT INTO purchase_orders (id, po_number, po_date, vendor_id, buyer_name, buyer_address, gstin, state_name, state_code, total_amount, terms_of_payment, validity_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [poId, po_number, po_date || null, vendor_id, buyer_name || null, buyer_address || null, gstin || null, state_name || null, state_code || null, total_amount, terms_of_payment || null, validity_date || null]
+    'INSERT INTO purchase_orders (id, po_number, po_date, vendor_id, buyer_name, buyer_address, gstin, state_name, state_code, total_amount, terms_of_payment, validity_date, contract_id, incoterms, cost_center, project_code, budget_code, delivery_schedule_json, partial_delivery_allowed_flag, retention_percentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [
+      poId, po_number, po_date || null, vendor_id, buyer_name || null, buyer_address || null, gstin || null, state_name || null, state_code || null, total_amount, terms_of_payment || null, validity_date || null,
+      contract_id || null, incoterms || null, cost_center || null, project_code || null, budget_code || null,
+      delivery_schedule_json ? JSON.stringify(delivery_schedule_json) : null,
+      partial_delivery_allowed_flag === undefined ? true : !!partial_delivery_allowed_flag,
+      retention_percentage ?? null,
+    ]
   );
 
   if (line_items && Array.isArray(line_items)) {

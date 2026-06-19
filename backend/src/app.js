@@ -61,6 +61,10 @@ app.use('/api/tickets', require('./modules/tickets/tickets.routes'));
 app.use('/api/risk', require('./modules/risk/risk.routes'));
 app.use('/api/esg', require('./modules/esg/esg.routes'));
 app.use('/api/pricing', require('./modules/pricing/pricing.routes'));
+app.use('/api/rfq', require('./modules/rfq/rfq.routes'));
+app.use('/api/item-master', require('./modules/item-master/item-master.routes'));
+app.use('/api/workflow', require('./modules/workflow/workflow.routes'));
+app.use('/api/documents', require('./modules/documents/documents.routes'));
 
 // Health check (no sensitive info)
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

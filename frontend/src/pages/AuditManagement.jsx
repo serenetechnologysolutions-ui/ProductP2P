@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, Select, Tag, Space, Row, Col, Card, Modal, Typography, Tabs, DatePicker, Divider, Popconfirm, Radio, message } from 'antd';
+import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Row, Col, Card, Modal, Typography, Tabs, DatePicker, Divider, Popconfirm, Radio, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
@@ -31,6 +31,8 @@ export default function AuditManagement() {
   const [findings, setFindings] = useState([]);
   const [findingModal, setFindingModal] = useState(false);
   const [findingForm] = Form.useForm();
+  const [completeModal, setCompleteModal] = useState(false);
+  const [completeForm] = Form.useForm();
 
   const [vendors, setVendors] = useState([]);
 
@@ -174,21 +176,25 @@ export default function AuditManagement() {
   const handleAddFinding = async () => {
     try {
       const values = await findingForm.validateFields();
-      await api.post(`/audit/executions/${executionDetail.id}/findings`, values);
+      const payload = { ...values, capa_due_date: values.capa_due_date ? values.capa_due_date.format('YYYY-MM-DD') : null };
+      await api.post(`/audit/executions/${executionDetail.id}/findings`, payload);
       message.success('Finding added');
       setFindingModal(false);
       // Refresh findings
-      setFindings(prev => [...prev, { ...values, id: Date.now(), status: 'open' }]);
+      setFindings(prev => [...prev, { ...payload, id: Date.now(), status: 'open' }]);
     } catch (err) { message.error(err.response?.data?.error || 'Failed'); }
   };
 
-  const handleCloseFinding = async (findingId) => {
+  const handleCloseFinding = async (findingId, capaClosureDate) => {
     try {
-      await api.put(`/audit/findings/${findingId}`, { status: 'closed' });
+      const payload = { status: 'closed', capa_closure_date: capaClosureDate ? capaClosureDate.format('YYYY-MM-DD') : undefined };
+      await api.put(`/audit/findings/${findingId}`, payload);
       message.success('Finding closed');
-      setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'closed' } : f));
+      setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'closed', capa_closure_date: payload.capa_closure_date || dayjs().format('YYYY-MM-DD') } : f));
     } catch (err) { message.error(err.response?.data?.error || 'Failed'); }
   };
+
+  const openCompleteModal = () => { completeForm.resetFields(); setCompleteModal(true); };
 
   const handleCompleteExecution = async () => {
     // Save responses first
@@ -196,8 +202,10 @@ export default function AuditManagement() {
       await handleSaveResponses();
     } catch {}
     try {
-      await api.put(`/audit/executions/${executionDetail.id}/complete`);
+      const values = await completeForm.validateFields();
+      await api.put(`/audit/executions/${executionDetail.id}/complete`, values);
       message.success('Audit completed — findings remain open for follow-up');
+      setCompleteModal(false);
       setExecutionDetail(null);
       fetchExecutions(); fetchSchedules();
     } catch (err) { message.error(err.response?.data?.error || 'Failed'); }
@@ -224,6 +232,12 @@ export default function AuditManagement() {
         <Button onClick={() => setExecutionDetail(null)} style={{ marginBottom: 16 }}>← Back to Audit Management</Button>
         <Title level={4}>Audit Execution — {executionDetail.checklist_name || 'Audit'}</Title>
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Complete the checklist responses. Remarks are mandatory for "No" answers.</Text>
+        {(executionDetail.audit_score != null || executionDetail.compliance_percentage != null) && (
+          <Space style={{ marginBottom: 16 }}>
+            {executionDetail.audit_score != null && <Tag color="blue">Audit Score: {executionDetail.audit_score}</Tag>}
+            {executionDetail.compliance_percentage != null && <Tag color="green">Compliance: {executionDetail.compliance_percentage}%</Tag>}
+          </Space>
+        )}
 
         <Card title="Checklist Responses" style={{ marginBottom: 16 }}>
           {executionItems.length === 0 && <Text type="secondary">No checklist items found</Text>}
@@ -259,18 +273,23 @@ export default function AuditManagement() {
                 <Col span={4}><Tag color={SEVERITY_COLOR[f.severity]}>{f.severity?.toUpperCase()}</Tag></Col>
                 <Col span={4}><Tag color={f.status === 'open' ? 'red' : 'green'}>{f.status?.toUpperCase()}</Tag></Col>
                 <Col span={4}>
-                  {f.status === 'open' && <Popconfirm title="Close this finding?" onConfirm={() => handleCloseFinding(f.id)}><Button size="small" type="primary">Close</Button></Popconfirm>}
+                  {f.status === 'open' && <Popconfirm title="Close this finding? CAPA closure date will be set to today." onConfirm={() => handleCloseFinding(f.id, dayjs())}><Button size="small" type="primary">Close</Button></Popconfirm>}
                 </Col>
               </Row>
+              {(f.capa_action_owner || f.capa_due_date || f.capa_closure_date) && (
+                <Row gutter={16} style={{ marginTop: 8 }}>
+                  {f.capa_action_owner && <Col span={8}><Text type="secondary">CAPA Owner: </Text><Text>{f.capa_action_owner}</Text></Col>}
+                  {f.capa_due_date && <Col span={8}><Text type="secondary">CAPA Due: </Text><Text>{dayjs(f.capa_due_date).format('DD-MM-YYYY')}</Text></Col>}
+                  {f.capa_closure_date && <Col span={8}><Text type="secondary">CAPA Closed: </Text><Text>{dayjs(f.capa_closure_date).format('DD-MM-YYYY')}</Text></Col>}
+                </Row>
+              )}
             </Card>
           ))}
         </Card>
 
         <Divider />
         <Space>
-          <Popconfirm title="Complete this audit? Open findings will remain for follow-up." onConfirm={handleCompleteExecution}>
-            <Button type="primary" size="large" icon={<CheckCircleOutlined />}>Complete Audit</Button>
-          </Popconfirm>
+          <Button type="primary" size="large" icon={<CheckCircleOutlined />} onClick={openCompleteModal}>Complete Audit</Button>
           <Popconfirm title="Close this audit? All findings must be resolved." onConfirm={handleCloseExecution}>
             <Button size="large" danger icon={<CheckCircleOutlined />}>Close Audit</Button>
           </Popconfirm>
@@ -284,6 +303,15 @@ export default function AuditManagement() {
               <Select placeholder="Select severity" options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }]} />
             </Form.Item>
             <Form.Item name="assigned_to" label="Assign Corrective Action To"><Input placeholder="Person or team responsible" /></Form.Item>
+            <Form.Item name="capa_action_owner" label="CAPA Action Owner"><Input placeholder="Person or team accountable for the corrective action" /></Form.Item>
+            <Form.Item name="capa_due_date" label="CAPA Due Date"><DatePicker style={{ width: '100%' }} /></Form.Item>
+          </Form>
+        </Modal>
+
+        <Modal title="Complete Audit" open={completeModal} onCancel={() => setCompleteModal(false)} onOk={handleCompleteExecution} okText="Complete">
+          <Form form={completeForm} layout="vertical" style={{ marginTop: 16 }}>
+            <Form.Item name="audit_score" label="Audit Score (0-100)"><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Overall audit score" /></Form.Item>
+            <Form.Item name="compliance_percentage" label="Compliance Percentage (0-100)"><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Compliance %" /></Form.Item>
           </Form>
         </Modal>
       </div>

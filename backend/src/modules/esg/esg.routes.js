@@ -18,23 +18,40 @@ router.get('/', authenticate, requireRole('procurement_admin', 'mdm_admin'), asy
 // PUT /api/esg/:vendorId — Update ESG data for a vendor
 router.put('/:vendorId', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
-  const { diversity_flag, compliance_status, remarks } = req.body;
+  const {
+    diversity_flag, compliance_status, remarks,
+    carbon_emission_score, energy_consumption, waste_management_score,
+    certification_list, esg_document_group_id,
+  } = req.body;
 
   // Verify vendor exists
   const [vendor] = await pool.query('SELECT id FROM vendors WHERE id = ?', [vendorId]);
   if (vendor.length === 0) throw new NotFoundError('Vendor not found');
 
+  const certificationListJson = certification_list ? JSON.stringify(certification_list) : null;
+
   // Upsert ESG record
   const [existing] = await pool.query('SELECT id FROM vendor_esg WHERE vendor_id = ?', [vendorId]);
   if (existing.length === 0) {
     await pool.query(
-      'INSERT INTO vendor_esg (id, vendor_id, diversity_flag, compliance_status, remarks, updated_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [uuidv4(), vendorId, diversity_flag || false, compliance_status || 'pending', remarks || null, req.user.id]
+      `INSERT INTO vendor_esg
+       (id, vendor_id, diversity_flag, compliance_status, remarks, updated_by,
+        carbon_emission_score, energy_consumption, waste_management_score, certification_list, esg_document_group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uuidv4(), vendorId, diversity_flag || false, compliance_status || 'pending', remarks || null, req.user.id,
+        carbon_emission_score ?? null, energy_consumption ?? null, waste_management_score ?? null,
+        certificationListJson, esg_document_group_id || null]
     );
   } else {
     await pool.query(
-      'UPDATE vendor_esg SET diversity_flag = ?, compliance_status = ?, remarks = ?, updated_by = ? WHERE vendor_id = ?',
-      [diversity_flag || false, compliance_status || 'pending', remarks || null, req.user.id, vendorId]
+      `UPDATE vendor_esg SET
+        diversity_flag = ?, compliance_status = ?, remarks = ?, updated_by = ?,
+        carbon_emission_score = ?, energy_consumption = ?, waste_management_score = ?,
+        certification_list = ?, esg_document_group_id = ?
+       WHERE vendor_id = ?`,
+      [diversity_flag || false, compliance_status || 'pending', remarks || null, req.user.id,
+        carbon_emission_score ?? null, energy_consumption ?? null, waste_management_score ?? null,
+        certificationListJson, esg_document_group_id || null, vendorId]
     );
   }
 

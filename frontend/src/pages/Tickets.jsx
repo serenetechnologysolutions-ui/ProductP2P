@@ -10,12 +10,19 @@ const { TextArea } = Input;
 const PRIORITY_COLOR = { low: 'blue', medium: 'orange', high: 'red', critical: 'magenta' };
 const STATUS_COLOR = { initiated: 'blue', in_progress: 'orange', vendor_closed: 'cyan', closed: 'green' };
 
+function SlaBadge({ sla_breach_flag, sla_due_date }) {
+  if (sla_breach_flag) return <Tag color="red">SLA BREACHED</Tag>;
+  if (sla_due_date) return <Tag>Due: {dayjs(sla_due_date).format('DD-MM-YYYY HH:mm')}</Tag>;
+  return null;
+}
+
 export default function Tickets() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createModal, setCreateModal] = useState(false);
   const [form] = Form.useForm();
   const [vendors, setVendors] = useState([]);
+  const [ticketCategories, setTicketCategories] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [ticketDetail, setTicketDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -23,6 +30,8 @@ export default function Tickets() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [reassignVendorIds, setReassignVendorIds] = useState([]);
   const [reassigning, setReassigning] = useState(false);
+  const [closeModal, setCloseModal] = useState(false);
+  const [closeForm] = Form.useForm();
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
   const isAdmin = user.role !== 'vendor';
@@ -37,6 +46,10 @@ export default function Tickets() {
     try { const res = await api.get('/vendors'); setVendors(res.data.data || []); } catch {}
   };
 
+  const fetchTicketCategories = async () => {
+    try { const res = await api.get('/sub-masters/ticket_category'); setTicketCategories(res.data.data || []); } catch {}
+  };
+
   const fetchTicketDetail = async (id) => {
     setDetailLoading(true);
     try {
@@ -46,7 +59,7 @@ export default function Tickets() {
     setDetailLoading(false);
   };
 
-  useEffect(() => { fetchTickets(); if (isAdmin) fetchVendors(); }, []);
+  useEffect(() => { fetchTickets(); if (isAdmin) fetchVendors(); fetchTicketCategories(); }, []);
 
   const openCreate = () => { form.resetFields(); setCreateModal(true); };
 
@@ -83,10 +96,14 @@ export default function Tickets() {
     setSendingMessage(false);
   };
 
+  const openCloseModal = () => { closeForm.resetFields(); setCloseModal(true); };
+
   const handleCloseTicket = async () => {
     try {
-      await api.put(`/tickets/${selectedTicket}/close`, { rating: 5, closure_remarks: 'Closed by admin' });
+      const values = await closeForm.validateFields();
+      await api.put(`/tickets/${selectedTicket}/close`, values);
       message.success('Ticket closed');
+      setCloseModal(false);
       fetchTicketDetail(selectedTicket);
       fetchTickets();
     } catch (err) { message.error(err.response?.data?.error || 'Failed to close ticket'); }
@@ -110,8 +127,10 @@ export default function Tickets() {
   const columns = [
     { title: 'Ticket #', dataIndex: 'ticket_number', render: (v, r) => <Button type="link" onClick={() => handleViewTicket(r)}>{v || `#${r.id}`}</Button> },
     { title: 'Subject', dataIndex: 'subject' },
+    { title: 'Category', dataIndex: 'category', width: 110, render: v => v ? <Tag color="purple">{v}</Tag> : '—' },
     { title: 'Priority', dataIndex: 'priority', width: 100, render: v => <Tag color={PRIORITY_COLOR[v]}>{v?.toUpperCase()}</Tag> },
     { title: 'Status', dataIndex: 'status', width: 120, render: v => <Tag color={STATUS_COLOR[v]}>{v?.toUpperCase().replace(/_/g, ' ')}</Tag> },
+    { title: 'SLA', width: 150, render: (_, r) => <SlaBadge sla_breach_flag={r.sla_breach_flag} sla_due_date={r.sla_due_date} /> },
     { title: 'Created', dataIndex: 'created_at', width: 110, render: v => v ? dayjs(v).format('DD-MM-YYYY') : '—' },
   ];
 
@@ -146,7 +165,11 @@ export default function Tickets() {
               <Space direction="vertical" size="small">
                 <Text type="secondary">Priority: <Tag color={PRIORITY_COLOR[t.priority]}>{t.priority?.toUpperCase()}</Tag></Text>
                 <Text type="secondary">Status: <Tag color={STATUS_COLOR[t.status]}>{t.status?.toUpperCase().replace(/_/g, ' ')}</Tag></Text>
+                {t.category && <Text type="secondary">Category: <Tag color="purple">{t.category}</Tag></Text>}
+                {(t.sla_breach_flag || t.sla_due_date) && <Text type="secondary">SLA: <SlaBadge sla_breach_flag={t.sla_breach_flag} sla_due_date={t.sla_due_date} /></Text>}
                 <Text type="secondary">Created: {t.created_at ? dayjs(t.created_at).format('DD-MM-YYYY HH:mm') : '—'}</Text>
+                {t.root_cause && <Text type="secondary">Root Cause: <Text>{t.root_cause}</Text></Text>}
+                {t.resolution_type && <Text type="secondary">Resolution Type: <Tag>{t.resolution_type}</Tag></Text>}
               </Space>
             </Col>
           </Row>
@@ -234,8 +257,28 @@ export default function Tickets() {
         </Card>
 
         {t.status !== 'closed' && (
-          <Button danger onClick={handleCloseTicket}>Close Ticket</Button>
+          <Button danger onClick={openCloseModal}>Close Ticket</Button>
         )}
+
+        {/* Close Ticket Modal */}
+        <Modal title="Close Ticket" open={closeModal} onCancel={() => setCloseModal(false)} onOk={handleCloseTicket} okText="Close Ticket">
+          <Form form={closeForm} layout="vertical" style={{ marginTop: 16 }}>
+            <Form.Item name="rating" label="Rating (1-5)" rules={[{ required: true, type: 'number', min: 1, max: 5 }]}>
+              <Select placeholder="Select rating">
+                {[1, 2, 3, 4, 5].map(n => <Select.Option key={n} value={n}>{n}</Select.Option>)}
+              </Select>
+            </Form.Item>
+            <Form.Item name="closure_remarks" label="Closure Remarks" rules={[{ required: true }]}>
+              <TextArea rows={3} placeholder="Describe how the issue was resolved" />
+            </Form.Item>
+            <Form.Item name="root_cause" label="Root Cause">
+              <TextArea rows={2} placeholder="What was the underlying cause?" />
+            </Form.Item>
+            <Form.Item name="resolution_type" label="Resolution Type">
+              <Input placeholder="e.g. Replaced, Refunded, Process Fix" />
+            </Form.Item>
+          </Form>
+        </Modal>
       </div>
     );
   }
@@ -273,6 +316,14 @@ export default function Tickets() {
             <Select mode="multiple" placeholder="Select vendors" allowClear>
               {vendors.map(v => <Select.Option key={v.id} value={v.id}>{v.vendor_name}</Select.Option>)}
             </Select>
+          </Form.Item>
+          <Form.Item name="category" label="Category">
+            <Select placeholder="Select category" allowClear>
+              {ticketCategories.map(c => <Select.Option key={c.id || c.name} value={c.name}>{c.name}</Select.Option>)}
+            </Select>
+          </Form.Item>
+          <Form.Item name="sla_hours" label="SLA (hours)">
+            <Input type="number" min={1} placeholder="e.g. 48" />
           </Form.Item>
         </Form>
       </Modal>

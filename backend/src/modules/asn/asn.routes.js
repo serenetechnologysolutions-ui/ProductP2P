@@ -15,7 +15,11 @@ const ASN_TRANSITIONS = {
 
 // POST /api/asns
 router.post('/', authenticate, requireRole('vendor', 'procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
-  const { po_id, eta, invoice_number, total_amount, lr_number, transporter_name, driver_name, driver_number, remarks, line_items, vendor_id } = req.body;
+  const {
+    po_id, eta, invoice_number, total_amount, lr_number, transporter_name, driver_name, driver_number, remarks, line_items, vendor_id,
+    shipment_mode, vehicle_number, eway_bill_number, dispatch_date, actual_delivery_date, invoice_currency, exchange_rate,
+    cgst_amount, sgst_amount, igst_amount, freight_charges,
+  } = req.body;
 
   const missing = [];
   if (!po_id) missing.push('po_id');
@@ -60,8 +64,17 @@ router.post('/', authenticate, requireRole('vendor', 'procurement_admin', 'mdm_a
   const asnNumber = 'ASN-' + Date.now().toString(36).toUpperCase();
 
   await pool.query(
-    `INSERT INTO asns (id, asn_number, vendor_id, po_id, eta, invoice_number, total_amount, lr_number, transporter_name, driver_name, driver_number, remarks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')`,
-    [asnId, asnNumber, effectiveVendorId || poRows[0].vendor_id, po_id, eta, invoice_number, total_amount, lr_number, transporter_name, driver_name, driver_number || null, remarks || null]
+    `INSERT INTO asns (
+      id, asn_number, vendor_id, po_id, eta, invoice_number, total_amount, lr_number, transporter_name, driver_name, driver_number, remarks, status,
+      shipment_mode, vehicle_number, eway_bill_number, dispatch_date, actual_delivery_date, invoice_currency, exchange_rate,
+      cgst_amount, sgst_amount, igst_amount, freight_charges
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      asnId, asnNumber, effectiveVendorId || poRows[0].vendor_id, po_id, eta, invoice_number, total_amount, lr_number, transporter_name, driver_name, driver_number || null, remarks || null,
+      shipment_mode || null, vehicle_number || null, eway_bill_number || null, dispatch_date || null, actual_delivery_date || null,
+      invoice_currency || 'INR', exchange_rate ?? 1,
+      cgst_amount ?? 0, sgst_amount ?? 0, igst_amount ?? 0, freight_charges ?? 0,
+    ]
   );
 
   // Insert line items
@@ -111,6 +124,27 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   const [lineItems] = await pool.query('SELECT ali.*, pli.description as po_description, pli.quantity as po_quantity FROM asn_line_items ali LEFT JOIN po_line_items pli ON ali.po_line_id = pli.id WHERE ali.asn_id = ?', [id]);
 
   res.json({ success: true, data: { ...rows[0], line_items: lineItems } });
+}));
+
+// PUT /api/asns/:id/three-way-match — set 3-way match result (PO vs ASN vs Invoice), done at validation time, not creation
+router.put('/:id/three-way-match', authenticate, requireRole('procurement_admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { three_way_match_status, discrepancy_flag, discrepancy_reason } = req.body;
+
+  const validStatuses = ['matched', 'mismatched', 'pending'];
+  if (!three_way_match_status || !validStatuses.includes(three_way_match_status)) {
+    throw new ValidationError('three_way_match_status must be one of: matched, mismatched, pending', ['three_way_match_status']);
+  }
+
+  const [rows] = await pool.query('SELECT id FROM asns WHERE id = ?', [id]);
+  if (rows.length === 0) throw new NotFoundError('ASN not found');
+
+  await pool.query(
+    'UPDATE asns SET three_way_match_status = ?, discrepancy_flag = ?, discrepancy_reason = ? WHERE id = ?',
+    [three_way_match_status, !!discrepancy_flag, discrepancy_reason || null, id]
+  );
+
+  res.json({ success: true, message: 'Three-way match status updated' });
 }));
 
 // POST /api/asns/:id/submit

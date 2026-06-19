@@ -214,14 +214,33 @@ router.put('/executions/:id/start', authenticate, requireRole('procurement_admin
 // PUT /api/audit/executions/:id/complete — Complete execution
 router.put('/executions/:id/complete', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const { audit_score, compliance_percentage, auditor_user_id } = req.body;
 
   const [execution] = await pool.query('SELECT id, schedule_id FROM audit_executions WHERE id = ?', [id]);
   if (execution.length === 0) throw new NotFoundError('Execution not found');
 
-  await pool.query("UPDATE audit_executions SET status = 'completed', completed_at = NOW() WHERE id = ?", [id]);
+  await pool.query(
+    "UPDATE audit_executions SET status = 'completed', completed_at = NOW(), audit_score = ?, compliance_percentage = ?, auditor_user_id = ? WHERE id = ?",
+    [audit_score ?? null, compliance_percentage ?? null, auditor_user_id || req.user.id, id]
+  );
   await pool.query("UPDATE audit_schedules SET status = 'completed' WHERE id = ?", [execution[0].schedule_id]);
 
   res.json({ success: true, message: 'Execution completed' });
+}));
+
+// PUT /api/audit/executions/:id/evidence — Link evidence document group to execution
+router.put('/executions/:id/evidence', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { evidence_attachment_group } = req.body;
+
+  if (!evidence_attachment_group) throw new ValidationError('Missing required field', ['evidence_attachment_group']);
+
+  const [execution] = await pool.query('SELECT id FROM audit_executions WHERE id = ?', [id]);
+  if (execution.length === 0) throw new NotFoundError('Execution not found');
+
+  await pool.query('UPDATE audit_executions SET evidence_attachment_group = ? WHERE id = ?', [evidence_attachment_group, id]);
+
+  res.json({ success: true, message: 'Evidence linked' });
 }));
 
 // PUT /api/audit/executions/:id/close — Close execution (all findings must be closed)
@@ -271,7 +290,7 @@ router.post('/executions/:id/responses', authenticate, requireRole('procurement_
 // POST /api/audit/executions/:id/findings — Add finding
 router.post('/executions/:id/findings', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { description, severity } = req.body;
+  const { description, severity, capa_action_owner, capa_due_date } = req.body;
 
   const missing = [];
   if (!description) missing.push('description');
@@ -283,8 +302,8 @@ router.post('/executions/:id/findings', authenticate, requireRole('procurement_a
 
   const findingId = uuidv4();
   await pool.query(
-    'INSERT INTO audit_findings (id, execution_id, description, severity) VALUES (?, ?, ?, ?)',
-    [findingId, id, description, severity]
+    'INSERT INTO audit_findings (id, execution_id, description, severity, capa_action_owner, capa_due_date) VALUES (?, ?, ?, ?, ?, ?)',
+    [findingId, id, description, severity, capa_action_owner || null, capa_due_date || null]
   );
 
   res.status(201).json({ success: true, data: { id: findingId } });
@@ -293,7 +312,7 @@ router.post('/executions/:id/findings', authenticate, requireRole('procurement_a
 // PUT /api/audit/findings/:id — Update finding status
 router.put('/findings/:id', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, capa_closure_date } = req.body;
 
   if (!status || !['open', 'closed'].includes(status)) {
     throw new ValidationError('Status must be open or closed');
@@ -303,7 +322,11 @@ router.put('/findings/:id', authenticate, requireRole('procurement_admin', 'mdm_
   if (existing.length === 0) throw new NotFoundError('Finding not found');
 
   const closedAt = status === 'closed' ? new Date() : null;
-  await pool.query('UPDATE audit_findings SET status = ?, closed_at = ? WHERE id = ?', [status, closedAt, id]);
+  const closureDate = status === 'closed' ? (capa_closure_date || new Date().toISOString().split('T')[0]) : null;
+  await pool.query(
+    'UPDATE audit_findings SET status = ?, closed_at = ?, capa_closure_date = ? WHERE id = ?',
+    [status, closedAt, closureDate, id]
+  );
 
   res.json({ success: true, message: 'Finding updated' });
 }));

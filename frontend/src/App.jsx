@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/Layout/AppLayout';
 import Login from './pages/Login';
@@ -17,6 +16,10 @@ import Tickets from './pages/Tickets';
 import RiskDashboard from './pages/RiskDashboard';
 import ESGTracking from './pages/ESGTracking';
 import PriceBenchmarking from './pages/PriceBenchmarking';
+import RFQ from './pages/RFQ';
+import ItemMaster from './pages/ItemMaster';
+import WorkflowEngine from './pages/WorkflowEngine';
+import DocumentCenter from './pages/DocumentCenter';
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem('vendor_token');
@@ -46,6 +49,10 @@ export default function App() {
           <Route path="risk" element={<RiskDashboard />} />
           <Route path="esg" element={<ESGTracking />} />
           <Route path="pricing" element={<PriceBenchmarking />} />
+          <Route path="rfq" element={<RFQ />} />
+          <Route path="item-master" element={<ItemMaster />} />
+          <Route path="workflow-engine" element={<WorkflowEngine />} />
+          <Route path="documents" element={<DocumentCenter />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

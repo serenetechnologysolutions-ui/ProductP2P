@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Menu } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined, ShopOutlined, FileProtectOutlined, DatabaseOutlined,
   SettingOutlined, UserOutlined, SolutionOutlined, AuditOutlined,
   AlertOutlined, SafetyOutlined, GlobalOutlined, DollarOutlined,
+  ReconciliationOutlined, ApartmentOutlined, FolderOpenOutlined,
 } from '@ant-design/icons';
 
 export default function Sidebar() {
@@ -28,6 +29,16 @@ export default function Sidebar() {
     ],
   };
 
+  const governanceMenuGroup = {
+    key: 'governance',
+    icon: <ApartmentOutlined />,
+    label: 'Governance',
+    children: [
+      { key: '/workflow-engine', icon: <ApartmentOutlined />, label: 'Workflow Engine' },
+      { key: '/documents', icon: <FolderOpenOutlined />, label: 'Document Center' },
+    ],
+  };
+
   const systemAdminItems = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/system-settings', icon: <SettingOutlined />, label: 'System Settings' },
@@ -41,12 +52,15 @@ export default function Sidebar() {
       { key: '/vendors', icon: <ShopOutlined />, label: 'Vendors' },
       { key: '/sub-masters', icon: <DatabaseOutlined />, label: 'Sub Masters' },
     ]},
-    { key: 'asn-mgmt', icon: <FileProtectOutlined />, label: 'ASN Management', children: [
+    { key: 'procurement-mgmt', icon: <FileProtectOutlined />, label: 'Procurement', children: [
+      { key: '/rfq', icon: <ReconciliationOutlined />, label: 'RFQ & Negotiation' },
+      { key: '/item-master', icon: <DatabaseOutlined />, label: 'Item Master' },
       { key: '/asns', icon: <FileProtectOutlined />, label: 'ASNs' },
       { key: '/purchase-orders', icon: <SolutionOutlined />, label: 'Purchase Orders' },
       { key: '/extraction-config', icon: <SettingOutlined />, label: 'Extraction Config' },
     ]},
     advancedMenuGroup,
+    governanceMenuGroup,
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', children: [
       { key: '/user-management', icon: <UserOutlined />, label: 'User Management' },
       { key: '/change-password', icon: <UserOutlined />, label: 'Change Password' },
@@ -55,13 +69,16 @@ export default function Sidebar() {
 
   const procurementItems = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
-    { key: 'asn-mgmt', icon: <FileProtectOutlined />, label: 'ASN Management', children: [
+    { key: 'procurement-mgmt', icon: <FileProtectOutlined />, label: 'Procurement', children: [
+      { key: '/rfq', icon: <ReconciliationOutlined />, label: 'RFQ & Negotiation' },
+      { key: '/item-master', icon: <DatabaseOutlined />, label: 'Item Master' },
       { key: '/asns', icon: <FileProtectOutlined />, label: 'ASNs' },
       { key: '/purchase-orders', icon: <SolutionOutlined />, label: 'Purchase Orders' },
       { key: '/extraction-config', icon: <SettingOutlined />, label: 'Extraction Config' },
     ]},
     { key: '/vendors', icon: <ShopOutlined />, label: 'Vendors' },
     advancedMenuGroup,
+    governanceMenuGroup,
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', children: [
       { key: '/change-password', icon: <UserOutlined />, label: 'Change Password' },
     ]},
@@ -71,6 +88,7 @@ export default function Sidebar() {
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/vendor-onboarding', icon: <UserOutlined />, label: 'My Profile' },
     { key: '/vendor-asns', icon: <FileProtectOutlined />, label: 'My ASNs' },
+    { key: '/rfq', icon: <ReconciliationOutlined />, label: 'RFQ & Bidding' },
     { key: '/tickets', icon: <AlertOutlined />, label: 'Supplier Issues' },
     { key: '/change-password', icon: <SettingOutlined />, label: 'Change Password' },
   ];
@@ -83,9 +101,10 @@ export default function Sidebar() {
 
   const PATH_TO_GROUP = {
     '/vendors': 'vendor-mgmt', '/sub-masters': 'vendor-mgmt',
-    '/asns': 'asn-mgmt', '/purchase-orders': 'asn-mgmt', '/extraction-config': 'asn-mgmt',
+    '/rfq': 'procurement-mgmt', '/item-master': 'procurement-mgmt', '/asns': 'procurement-mgmt', '/purchase-orders': 'procurement-mgmt', '/extraction-config': 'procurement-mgmt',
     '/change-password': 'settings', '/user-management': 'settings',
     '/audit': 'advanced', '/tickets': 'advanced', '/risk': 'advanced', '/esg': 'advanced', '/pricing': 'advanced',
+    '/workflow-engine': 'governance', '/documents': 'governance',
   };
 
   const openKeys = useMemo(() => {
@@ -95,7 +114,7 @@ export default function Sidebar() {
 
   return (
     <Menu theme="dark" mode="inline" selectedKeys={[location.pathname]} defaultOpenKeys={openKeys} items={items}
-      onClick={({ key }) => { if (!['vendor-mgmt', 'asn-mgmt', 'settings', 'advanced'].includes(key)) navigate(key); }}
+      onClick={({ key }) => { if (!['vendor-mgmt', 'procurement-mgmt', 'settings', 'advanced', 'governance'].includes(key)) navigate(key); }}
       style={{ height: '100%', borderRight: 0 }} />
   );
 }

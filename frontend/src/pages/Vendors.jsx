@@ -1,10 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, Select, Tag, Space, Row, Col, Card, Tabs, Popconfirm, Typography, Divider, Statistic, Avatar, Modal, Checkbox, message } from 'antd';
-import { PlusOutlined, ArrowLeftOutlined, EditOutlined, SearchOutlined, ClearOutlined, SaveOutlined, CheckOutlined, CloseOutlined, StopOutlined, DeleteOutlined, PlusCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Tabs, Popconfirm, Typography, Divider, Statistic, Avatar, Modal, Checkbox, Upload, Alert, message } from 'antd';
+import { PlusOutlined, ArrowLeftOutlined, EditOutlined, SearchOutlined, ClearOutlined, SaveOutlined, CheckOutlined, CloseOutlined, StopOutlined, DeleteOutlined, PlusCircleOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import api from '../api/axios';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR = { draft: 'default', submitted: 'blue', under_review: 'orange', approved: 'green', rejected: 'red', inactive: '#8c8c8c' };
+const LIFECYCLE_COLOR = { onboarding: 'blue', active: 'green', dormant: 'gold', blocked: '#8c8c8c' };
+const RISK_COLOR = { low: 'green', medium: 'orange', high: 'red' };
+const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
+
+function parseMaybeJson(value) {
+  if (!value) return null;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return null; }
+}
 
 export default function Vendors() {
   const [data, setData] = useState([]);
@@ -19,6 +29,11 @@ export default function Vendors() {
   const [subMasters, setSubMasters] = useState({});
   const [addresses, setAddresses] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [complianceDates, setComplianceDates] = useState([]);
 
   const fetchData = useCallback(async (page = 1, pageSize = 10) => {
     setLoading(true);
@@ -36,7 +51,7 @@ export default function Vendors() {
   useEffect(() => {
     (async () => {
       try {
-        const cats = ['company', 'department', 'supplier_group', 'supplier_category', 'state', 'city'];
+        const cats = ['company', 'department', 'supplier_group', 'supplier_category', 'state', 'city', 'country', 'vendor_type', 'industry', 'registration_type', 'payment_terms'];
         const results = {};
         for (const cat of cats) { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; }
         setSubMasters(results);
@@ -55,14 +70,16 @@ export default function Vendors() {
   const openForm = () => { form.resetFields(); setSelected(null); setView('form'); };
 
   const openEdit = (vendor) => {
-    form.setFieldsValue(vendor);
+    form.setFieldsValue({ ...vendor, serviceable_regions: parseMaybeJson(vendor.serviceable_regions) || [] });
     setSelected(vendor);
     setAddresses(vendor.addresses || []);
     setBankAccounts(vendor.bank_accounts || []);
+    const complianceObj = parseMaybeJson(vendor.compliance_expiry_dates) || {};
+    setComplianceDates(Object.entries(complianceObj).map(([label, expiry_date]) => ({ label, expiry_date })));
     setView('edit');
   };
 
-  const goBack = () => { setView('list'); setSelected(null); setAddresses([]); setBankAccounts([]); };
+  const goBack = () => { setView('list'); setSelected(null); setAddresses([]); setBankAccounts([]); setComplianceDates([]); };
 
   const handleCreate = async () => {
     try {
@@ -76,11 +93,17 @@ export default function Vendors() {
   const handleUpdate = async () => {
     try {
       const values = await form.validateFields();
-      await api.put(`/vendors/${selected.id}`, { ...values, addresses, bank_accounts: bankAccounts });
+      const compliance_expiry_dates = complianceDates.reduce((acc, c) => { if (c.label) acc[c.label] = c.expiry_date ? dayjs(c.expiry_date).format('YYYY-MM-DD') : null; return acc; }, {});
+      await api.put(`/vendors/${selected.id}`, { ...values, addresses, bank_accounts: bankAccounts, compliance_expiry_dates });
       message.success('Vendor updated');
       goBack(); fetchData();
     } catch (err) { message.error(err.response?.data?.error || 'Update failed'); }
   };
+
+  // Compliance expiry date helpers
+  const addComplianceDate = () => setComplianceDates([...complianceDates, { label: '', expiry_date: null }]);
+  const removeComplianceDate = (i) => setComplianceDates(complianceDates.filter((_, idx) => idx !== i));
+  const updateComplianceDate = (i, field, value) => setComplianceDates(complianceDates.map((c, idx) => idx === i ? { ...c, [field]: value } : c));
 
   const handleAction = async (action) => {
     try {
@@ -97,6 +120,31 @@ export default function Vendors() {
       fetchData(pagination.current, pagination.pageSize);
     } catch (err) { message.error(err.response?.data?.error || 'Action failed'); }
   };
+
+  const handleDelete = async (vendorId) => {
+    try {
+      await api.delete(`/vendors/${vendorId}`);
+      message.success('Vendor deleted');
+      if (view === 'detail') goBack();
+      fetchData(pagination.current, pagination.pageSize);
+    } catch (err) { message.error(err.response?.data?.message || 'Delete failed — vendor may have existing transactions'); }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) { message.error('Choose an Excel file first'); return; }
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      const res = await api.post('/vendors/import', formData);
+      setImportResult(res.data.data);
+      message.success(`Imported ${res.data.data.created.length} of ${res.data.data.total} vendors`);
+      fetchData();
+    } catch (err) { message.error(err.response?.data?.message || 'Import failed'); }
+    setImporting(false);
+  };
+
+  const closeImportModal = () => { setImportModalOpen(false); setImportFile(null); setImportResult(null); };
 
   // Address helpers
   const addAddress = () => setAddresses([...addresses, { line1: '', line2: '', city: '', state: '', country: 'India', pin_code: '', tags: [] }]);
@@ -116,12 +164,24 @@ export default function Vendors() {
       { title: 'Category', dataIndex: 'supplier_category', render: v => v ? <Tag color="blue">{v}</Tag> : '—' },
       { title: 'Email', dataIndex: 'email' },
       { title: 'Status', dataIndex: 'status', width: 120, render: s => <Tag color={STATUS_COLOR[s]}>{s?.toUpperCase().replace('_', ' ')}</Tag> },
+      { title: 'Lifecycle', dataIndex: 'lifecycle_stage', width: 110, render: s => s ? <Tag color={LIFECYCLE_COLOR[s]}>{s.toUpperCase()}</Tag> : '—' },
+      { title: 'Risk', dataIndex: 'risk_category', width: 90, render: r => r ? <Tag color={RISK_COLOR[r]}>{r.toUpperCase()}</Tag> : '—' },
+      {
+        title: 'Actions', width: 80, render: (_, record) => (
+          <Popconfirm title="Delete this vendor?" description="This cannot be undone." onConfirm={(e) => { e?.stopPropagation?.(); handleDelete(record.id); }} onCancel={(e) => e?.stopPropagation?.()}>
+            <Button icon={<DeleteOutlined />} size="small" danger onClick={e => e.stopPropagation()} />
+          </Popconfirm>
+        ),
+      },
     ];
     return (
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <Title level={4} style={{ margin: 0 }}>Vendor Master</Title>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openForm}>Add Vendor</Button>
+          <Space>
+            <Button icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>Import Excel</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openForm}>Add Vendor</Button>
+          </Space>
         </div>
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Manage vendor master data, onboarding workflows, and approval status. Create new vendors and track their lifecycle.</Text>
         <Card size="small" style={{ marginBottom: 16 }}>
@@ -134,6 +194,44 @@ export default function Vendors() {
         <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle"
           pagination={{ ...pagination, showSizeChanger: true, showTotal: t => `${t} vendors`, onChange: (p, ps) => fetchData(p, ps) }}
           onRow={(record) => ({ onClick: () => openDetail(record), style: { cursor: 'pointer' } })} />
+
+        <Modal title="Import Vendors from Excel" open={importModalOpen} onCancel={closeImportModal} footer={null} destroyOnClose>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+            File must have a header row with columns: Vendor Name, Email, Phone, Company Name, Department, Supplier Group, Supplier Category, Supplier Location.
+          </Text>
+          <Upload.Dragger
+            accept=".xlsx,.xls"
+            maxCount={1}
+            beforeUpload={(file) => { setImportFile(file); setImportResult(null); return false; }}
+            onRemove={() => setImportFile(null)}
+            fileList={importFile ? [{ uid: '1', name: importFile.name }] : []}
+          >
+            <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+            <p>Click or drag an Excel file to this area</p>
+          </Upload.Dragger>
+
+          {importResult && (
+            <div style={{ marginTop: 16 }}>
+              <Alert
+                type={importResult.skipped.length > 0 ? 'warning' : 'success'}
+                showIcon
+                message={`${importResult.created.length} of ${importResult.total} rows imported`}
+              />
+              {importResult.skipped.length > 0 && (
+                <Card size="small" title="Skipped rows" style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
+                  {importResult.skipped.map(s => <div key={s.row}><Text type="secondary">Row {s.row}:</Text> {s.reason}</div>)}
+                </Card>
+              )}
+            </div>
+          )}
+
+          <div style={{ marginTop: 16, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={closeImportModal}>Close</Button>
+              <Button type="primary" icon={<UploadOutlined />} loading={importing} onClick={handleImport}>Upload &amp; Import</Button>
+            </Space>
+          </div>
+        </Modal>
       </div>
     );
   }
@@ -147,7 +245,10 @@ export default function Vendors() {
             <Button icon={<ArrowLeftOutlined />} onClick={goBack}>Back</Button>
             <Title level={4} style={{ margin: 0 }}>{selected.vendor_name}</Title>
             <Tag color="purple">{selected.vendor_number}</Tag>
+            {selected.vendor_code && <Tag color="geekblue">{selected.vendor_code}</Tag>}
             <Tag color={STATUS_COLOR[selected.status]}>{selected.status?.toUpperCase().replace('_', ' ')}</Tag>
+            {selected.lifecycle_stage && <Tag color={LIFECYCLE_COLOR[selected.lifecycle_stage]}>{selected.lifecycle_stage.toUpperCase()}</Tag>}
+            {!!selected.blacklist_flag && <Tag color="red">BLACKLISTED</Tag>}
           </Space>
           <Space>
             <Button icon={<EditOutlined />} onClick={() => openEdit(selected)}>Edit</Button>
@@ -155,6 +256,9 @@ export default function Vendors() {
             {selected.status === 'under_review' && <Button type="primary" icon={<CheckOutlined />} style={{ background: '#52c41a' }} onClick={() => handleAction('approve')}>Approve</Button>}
             {selected.status === 'under_review' && <Button danger icon={<CloseOutlined />} onClick={() => setRejectModalOpen(true)}>Reject</Button>}
             {selected.status === 'approved' && <Popconfirm title="Deactivate?" onConfirm={() => handleAction('deactivate')}><Button icon={<StopOutlined />}>Deactivate</Button></Popconfirm>}
+            <Popconfirm title="Delete this vendor?" description="This cannot be undone. Vendors with existing transactions cannot be deleted." onConfirm={() => handleDelete(selected.id)}>
+              <Button icon={<DeleteOutlined />} danger>Delete</Button>
+            </Popconfirm>
           </Space>
         </div>
         <Tabs defaultActiveKey="overview" items={[
@@ -203,6 +307,36 @@ export default function Vendors() {
                 </Col>
               ))}
               {(!selected.bank_accounts || selected.bank_accounts.length === 0) && <Col span={24}><Text type="secondary">No bank accounts added</Text></Col>}
+            </Row>
+          )},
+          { key: 'governance', label: 'Governance & Risk', children: (
+            <Row gutter={[16, 16]}>
+              <Col span={6}><Card size="small"><Text type="secondary">Vendor Code (Manual)</Text><br /><Text strong>{selected.vendor_code || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Vendor Code (Auto)</Text><br /><Text strong>{selected.vendor_code_auto || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Vendor Type</Text><br /><Text strong>{selected.vendor_type || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Industry</Text><br /><Text strong>{selected.industry || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Registration Type</Text><br /><Text strong>{selected.registration_type || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">GST Validation</Text><br /><Tag color={selected.gst_validation_status === 'valid' ? 'green' : selected.gst_validation_status === 'invalid' ? 'red' : 'default'}>{(selected.gst_validation_status || 'pending').toUpperCase()}</Tag></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">PAN Validation</Text><br /><Tag color={selected.pan_validation_status === 'valid' ? 'green' : selected.pan_validation_status === 'invalid' ? 'red' : 'default'}>{(selected.pan_validation_status || 'pending').toUpperCase()}</Tag></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Preferred Vendor</Text><br /><Text strong>{selected.preferred_vendor_flag ? 'Yes' : 'No'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Credit Rating</Text><br /><Text strong>{selected.credit_rating || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Credit Limit</Text><br /><Text strong>{selected.credit_limit != null ? `${selected.currency_code || 'INR'} ${selected.credit_limit}` : '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Currency</Text><br /><Text strong>{selected.currency_code || 'INR'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Risk Category</Text><br />{selected.risk_category ? <Tag color={RISK_COLOR[selected.risk_category]}>{selected.risk_category.toUpperCase()}</Tag> : '—'}</Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Account Manager</Text><br /><Text strong>{selected.account_manager_name || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Geo Coordinates</Text><br /><Text strong>{selected.geo_latitude != null && selected.geo_longitude != null ? `${selected.geo_latitude}, ${selected.geo_longitude}` : '—'}</Text></Card></Col>
+              <Col span={12}><Card size="small"><Text type="secondary">Serviceable Regions</Text><br />{(parseMaybeJson(selected.serviceable_regions) || []).length > 0 ? (parseMaybeJson(selected.serviceable_regions) || []).map(r => <Tag key={r}>{r}</Tag>) : '—'}</Card></Col>
+              {!!selected.blacklist_flag && <Col span={24}><Card size="small" style={{ borderColor: '#ff4d4f' }}><Text type="secondary">Blacklist Reason</Text><br /><Text strong style={{ color: '#ff4d4f' }}>{selected.blacklist_reason || '—'}</Text></Card></Col>}
+              <Col span={24}>
+                <Card size="small" title="Compliance Expiry Dates">
+                  {Object.entries(parseMaybeJson(selected.compliance_expiry_dates) || {}).length === 0 && <Text type="secondary">None recorded</Text>}
+                  <Row gutter={[8, 8]}>
+                    {Object.entries(parseMaybeJson(selected.compliance_expiry_dates) || {}).map(([label, date]) => (
+                      <Col span={6} key={label}><Text type="secondary">{label}</Text><br /><Text strong>{date || '—'}</Text></Col>
+                    ))}
+                  </Row>
+                </Card>
+              </Col>
             </Row>
           )},
         ]} />
@@ -260,6 +394,46 @@ export default function Vendors() {
             </Row>
 
             <Divider />
+            <Title level={5}>Classification &amp; Governance</Title>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="vendor_code" label={<span>Vendor Code<span className="form-label-desc">ERP-friendly, manual entry</span></span>}><Input placeholder="e.g. ERP-VND-001" /></Form.Item></Col>
+              <Col span={6}><Form.Item label="Vendor Code (Auto)"><Input disabled value={selected.vendor_code_auto} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="vendor_type" label="Vendor Type"><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="industry" label="Industry"><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="registration_type" label="Registration Type"><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="payment_terms_id" label="Payment Terms"><Select showSearch placeholder="Select" options={(subMasters.payment_terms || []).map(s => ({ value: s.id, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="currency_code" label="Currency"><Select options={CURRENCY_OPTIONS} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="account_manager_name" label="Account Manager"><Input /></Form.Item></Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="credit_rating" label={<span>Credit Rating<span className="form-label-desc">e.g. AA+, BB</span></span>}><Input maxLength={10} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="credit_limit" label="Credit Limit"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="risk_category" label="Risk Category"><Select placeholder="Select" options={[{ value: 'low' }, { value: 'medium' }, { value: 'high' }]} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="preferred_vendor_flag" label=" " valuePropName="checked"><Checkbox>Preferred Vendor</Checkbox></Form.Item></Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="geo_longitude" label="Geo Longitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+              <Col span={12}><Form.Item name="serviceable_regions" label="Serviceable Regions"><Select mode="tags" placeholder="Type a region and press enter" /></Form.Item></Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="blacklist_flag" label=" " valuePropName="checked"><Checkbox>Blacklisted</Checkbox></Form.Item></Col>
+              <Col span={18}><Form.Item name="blacklist_reason" label="Blacklist Reason"><Input placeholder="Required if blacklisted" /></Form.Item></Col>
+            </Row>
+
+            <Title level={5} style={{ marginTop: 8 }}>Compliance Expiry Dates</Title>
+            {complianceDates.map((c, i) => (
+              <Row gutter={12} key={i} style={{ marginBottom: 8 }} align="middle">
+                <Col span={10}><Input placeholder="Document / certification name" value={c.label} onChange={e => updateComplianceDate(i, 'label', e.target.value)} /></Col>
+                <Col span={8}><DatePicker style={{ width: '100%' }} value={c.expiry_date ? dayjs(c.expiry_date) : null} onChange={d => updateComplianceDate(i, 'expiry_date', d)} /></Col>
+                <Col span={2}><Button icon={<DeleteOutlined />} size="small" danger onClick={() => removeComplianceDate(i)} /></Col>
+              </Row>
+            ))}
+            <Button type="dashed" icon={<PlusCircleOutlined />} onClick={addComplianceDate} block>Add Compliance Date</Button>
+
+            <Divider />
             <Title level={5}>Addresses</Title>
             {addresses.map((addr, i) => (
               <Card key={i} size="small" style={{ marginBottom: 12 }} extra={<Button icon={<DeleteOutlined />} size="small" danger onClick={() => removeAddress(i)} />}>
@@ -268,9 +442,9 @@ export default function Vendors() {
                   <Col span={12}><Input placeholder="Address Line 2" value={addr.line2} onChange={e => updateAddress(i, 'line2', e.target.value)} /></Col>
                 </Row>
                 <Row gutter={12} style={{ marginTop: 8 }}>
-                  <Col span={4}><Input placeholder="City" value={addr.city} onChange={e => updateAddress(i, 'city', e.target.value)} /></Col>
-                  <Col span={4}><Input placeholder="State" value={addr.state} onChange={e => updateAddress(i, 'state', e.target.value)} /></Col>
-                  <Col span={4}><Input placeholder="Country" value={addr.country} onChange={e => updateAddress(i, 'country', e.target.value)} /></Col>
+                  <Col span={4}><Select showSearch placeholder="City" value={addr.city || undefined} onChange={v => updateAddress(i, 'city', v)} options={(subMasters.city || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                  <Col span={4}><Select showSearch placeholder="State" value={addr.state || undefined} onChange={v => updateAddress(i, 'state', v)} options={(subMasters.state || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                  <Col span={4}><Select showSearch placeholder="Country" value={addr.country || undefined} onChange={v => updateAddress(i, 'country', v)} options={(subMasters.country || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
                   <Col span={4}><Input placeholder="PIN Code" value={addr.pin_code} onChange={e => updateAddress(i, 'pin_code', e.target.value)} maxLength={6} /></Col>
                   <Col span={8}>
                     <Checkbox.Group value={Array.isArray(addr.tags) ? addr.tags : (typeof addr.tags === 'string' ? JSON.parse(addr.tags) : [])} onChange={v => updateAddress(i, 'tags', v)} options={[{ label: 'Billing', value: 'billing' }, { label: 'Shipping', value: 'shipping' }, { label: 'Registered', value: 'registered' }]} />
@@ -292,9 +466,9 @@ export default function Vendors() {
                 </Row>
                 <Row gutter={12} style={{ marginTop: 8 }}>
                   <Col span={6}><Input placeholder="Branch" value={bank.branch} onChange={e => updateBank(i, 'branch', e.target.value)} /></Col>
-                  <Col span={6}><Input placeholder="City" value={bank.city} onChange={e => updateBank(i, 'city', e.target.value)} /></Col>
-                  <Col span={6}><Input placeholder="State" value={bank.state} onChange={e => updateBank(i, 'state', e.target.value)} /></Col>
-                  <Col span={6}><Input placeholder="Country" value={bank.country} onChange={e => updateBank(i, 'country', e.target.value)} /></Col>
+                  <Col span={6}><Select showSearch placeholder="City" value={bank.city || undefined} onChange={v => updateBank(i, 'city', v)} options={(subMasters.city || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                  <Col span={6}><Select showSearch placeholder="State" value={bank.state || undefined} onChange={v => updateBank(i, 'state', v)} options={(subMasters.state || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                  <Col span={6}><Select showSearch placeholder="Country" value={bank.country || undefined} onChange={v => updateBank(i, 'country', v)} options={(subMasters.country || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
                 </Row>
               </Card>
             ))}
@@ -335,6 +509,20 @@ export default function Vendors() {
           <Row gutter={16}>
             <Col span={8}><Form.Item name="supplier_location" label="Location" rules={[{ required: true }]}><Input placeholder="City / Location" /></Form.Item></Col>
           </Row>
+
+          <Divider />
+          <Title level={5}>Additional Information <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>(optional — can be completed later)</Text></Title>
+          <Row gutter={16}>
+            <Col span={6}><Form.Item name="vendor_code" label={<span>Vendor Code<span className="form-label-desc">ERP-friendly, manual entry</span></span>}><Input placeholder="e.g. ERP-VND-001" /></Form.Item></Col>
+            <Col span={6}><Form.Item name="vendor_type" label="Vendor Type"><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+            <Col span={6}><Form.Item name="industry" label="Industry"><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+            <Col span={6}><Form.Item name="registration_type" label="Registration Type"><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={6}><Form.Item name="currency_code" label="Currency" initialValue="INR"><Select options={CURRENCY_OPTIONS} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="account_manager_name" label="Account Manager"><Input /></Form.Item></Col>
+          </Row>
+
           <Divider />
           <Space size="middle">
             <Button type="primary" size="large" icon={<SaveOutlined />} onClick={handleCreate}>Create Vendor</Button>

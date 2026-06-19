@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Form, Input, Button, Steps, Row, Col, Card, Typography, Divider, Select, Upload, Checkbox, Space, message } from 'antd';
+import { Form, Input, InputNumber, Button, Steps, Row, Col, Card, Typography, Divider, Select, Upload, Checkbox, Space, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../api/axios';
 
 const { Title, Text } = Typography;
+const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
 
 export default function VendorOnboarding() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -12,6 +13,7 @@ export default function VendorOnboarding() {
   const [addresses, setAddresses] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [subMasters, setSubMasters] = useState({});
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
 
@@ -20,11 +22,27 @@ export default function VendorOnboarding() {
       api.get(`/vendors/${user.vendorId}`).then(res => {
         const v = res.data.data;
         setVendor(v);
-        form.setFieldsValue(v);
+        const serviceableRegions = (() => {
+          if (!v.serviceable_regions) return [];
+          if (Array.isArray(v.serviceable_regions)) return v.serviceable_regions;
+          try { return JSON.parse(v.serviceable_regions); } catch { return []; }
+        })();
+        form.setFieldsValue({ ...v, serviceable_regions: serviceableRegions });
         setAddresses(v.addresses || []);
         setBankAccounts(v.bank_accounts || []);
       }).catch(() => {});
     }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const cats = ['city', 'state', 'country', 'vendor_type', 'industry', 'registration_type'];
+        const results = {};
+        for (const cat of cats) { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; }
+        setSubMasters(results);
+      } catch (_) {}
+    })();
   }, []);
 
   const handleSubmit = async () => {
@@ -88,6 +106,19 @@ export default function VendorOnboarding() {
                 <Col span={6}><Form.Item name="msme_type" label="MSME Type"><Select placeholder="Select" options={[{ value: 'micro' }, { value: 'small' }, { value: 'medium' }]} allowClear /></Form.Item></Col>
                 <Col span={6}><Form.Item name="itr_filing_status" label="ITR Filing"><Select placeholder="Select" options={[{ value: 'filed' }, { value: 'not_filed' }]} allowClear /></Form.Item></Col>
               </Row>
+              <Divider />
+              <Title level={5}>Classification</Title>
+              <Row gutter={16}>
+                <Col span={6}><Form.Item name="vendor_type" label="Vendor Type"><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="industry" label="Industry"><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="registration_type" label="Registration Type"><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="currency_code" label="Preferred Currency"><Select placeholder="Select" options={CURRENCY_OPTIONS} allowClear /></Form.Item></Col>
+              </Row>
+              <Row gutter={16}>
+                <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+                <Col span={6}><Form.Item name="geo_longitude" label="Geo Longitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+                <Col span={12}><Form.Item name="serviceable_regions" label="Serviceable Regions"><Select mode="tags" placeholder="Type a region and press enter" /></Form.Item></Col>
+              </Row>
             </div>
           )}
           {currentStep === 1 && (
@@ -100,9 +131,9 @@ export default function VendorOnboarding() {
                     <Col span={12}><Input placeholder="Address Line 2" value={addr.line2} onChange={e => updateAddress(i, 'line2', e.target.value)} /></Col>
                   </Row>
                   <Row gutter={12} style={{ marginTop: 8 }}>
-                    <Col span={4}><Input placeholder="City" value={addr.city} onChange={e => updateAddress(i, 'city', e.target.value)} /></Col>
-                    <Col span={4}><Input placeholder="State" value={addr.state} onChange={e => updateAddress(i, 'state', e.target.value)} /></Col>
-                    <Col span={4}><Input placeholder="Country" value={addr.country} onChange={e => updateAddress(i, 'country', e.target.value)} /></Col>
+                    <Col span={4}><Select showSearch placeholder="City" value={addr.city || undefined} onChange={v => updateAddress(i, 'city', v)} options={(subMasters.city || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                    <Col span={4}><Select showSearch placeholder="State" value={addr.state || undefined} onChange={v => updateAddress(i, 'state', v)} options={(subMasters.state || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                    <Col span={4}><Select showSearch placeholder="Country" value={addr.country || undefined} onChange={v => updateAddress(i, 'country', v)} options={(subMasters.country || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
                     <Col span={4}><Input placeholder="PIN Code" value={addr.pin_code} onChange={e => updateAddress(i, 'pin_code', e.target.value)} maxLength={6} /></Col>
                     <Col span={8}>
                       <Checkbox.Group value={addr.tags} onChange={v => updateAddress(i, 'tags', v)} options={[{ label: 'Billing', value: 'billing' }, { label: 'Shipping', value: 'shipping' }, { label: 'Registered', value: 'registered' }]} />
@@ -126,9 +157,9 @@ export default function VendorOnboarding() {
                   </Row>
                   <Row gutter={12} style={{ marginTop: 8 }}>
                     <Col span={6}><Input placeholder="Branch" value={bank.branch} onChange={e => updateBank(i, 'branch', e.target.value)} /></Col>
-                    <Col span={6}><Input placeholder="City" value={bank.city} onChange={e => updateBank(i, 'city', e.target.value)} /></Col>
-                    <Col span={6}><Input placeholder="State" value={bank.state} onChange={e => updateBank(i, 'state', e.target.value)} /></Col>
-                    <Col span={6}><Input placeholder="Country" value={bank.country} onChange={e => updateBank(i, 'country', e.target.value)} /></Col>
+                    <Col span={6}><Select showSearch placeholder="City" value={bank.city || undefined} onChange={v => updateBank(i, 'city', v)} options={(subMasters.city || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                    <Col span={6}><Select showSearch placeholder="State" value={bank.state || undefined} onChange={v => updateBank(i, 'state', v)} options={(subMasters.state || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
+                    <Col span={6}><Select showSearch placeholder="Country" value={bank.country || undefined} onChange={v => updateBank(i, 'country', v)} options={(subMasters.country || []).map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} allowClear /></Col>
                   </Row>
                 </Card>
               ))}

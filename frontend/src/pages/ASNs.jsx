@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Typography, Divider, Steps, Upload, Modal, message } from 'antd';
-import { PlusOutlined, ArrowLeftOutlined, CheckOutlined, CloseOutlined, SendOutlined, EditOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons';
+import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Typography, Divider, Steps, Upload, Modal, Checkbox, message } from 'antd';
+import { PlusOutlined, ArrowLeftOutlined, CheckOutlined, CloseOutlined, SendOutlined, EditOutlined, SaveOutlined, UploadOutlined, AuditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR = { draft: 'default', submitted: 'blue', validated: 'orange', posted: 'green', rejected: 'red' };
 const STATUS_LABEL = { draft: 'DRAFT', submitted: 'INITIATED', validated: 'VALIDATED', posted: 'POSTED', rejected: 'REJECTED' };
+const SHIPMENT_MODE_OPTIONS = ['road', 'air', 'sea'].map(v => ({ value: v, label: v.toUpperCase() }));
+const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
+const MATCH_STATUS_COLOR = { matched: 'green', mismatched: 'red', pending: 'default' };
 
 export default function ASNs() {
   const [data, setData] = useState([]);
@@ -23,6 +26,10 @@ export default function ASNs() {
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [extractionResults, setExtractionResults] = useState([]);
+  const [matchModalOpen, setMatchModalOpen] = useState(false);
+  const [matchStatus, setMatchStatus] = useState('matched');
+  const [matchDiscrepancyFlag, setMatchDiscrepancyFlag] = useState(false);
+  const [matchDiscrepancyReason, setMatchDiscrepancyReason] = useState('');
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
 
@@ -71,6 +78,8 @@ export default function ASNs() {
     form.setFieldsValue({
       ...selected,
       eta: selected.eta ? dayjs(selected.eta) : null,
+      dispatch_date: selected.dispatch_date ? dayjs(selected.dispatch_date) : null,
+      actual_delivery_date: selected.actual_delivery_date ? dayjs(selected.actual_delivery_date) : null,
     });
     fetchPOs();
     setLineItems(selected.line_items?.map(l => ({ po_line_id: l.po_line_id, description: l.description || l.po_description, quantity: l.quantity, amount: l.amount, max_qty: 9999 })) || []);
@@ -106,6 +115,17 @@ export default function ASNs() {
         driver_number: values.driver_number || null,
         remarks: values.remarks || null,
         line_items: validLines.map(l => ({ po_line_id: l.po_line_id, description: l.description, quantity: l.quantity, amount: l.amount })),
+        shipment_mode: values.shipment_mode || null,
+        vehicle_number: values.vehicle_number || null,
+        eway_bill_number: values.eway_bill_number || null,
+        dispatch_date: values.dispatch_date ? values.dispatch_date.format('YYYY-MM-DD') : null,
+        actual_delivery_date: values.actual_delivery_date ? values.actual_delivery_date.format('YYYY-MM-DD') : null,
+        invoice_currency: values.invoice_currency || 'INR',
+        exchange_rate: values.exchange_rate ?? 1,
+        cgst_amount: values.cgst_amount ?? 0,
+        sgst_amount: values.sgst_amount ?? 0,
+        igst_amount: values.igst_amount ?? 0,
+        freight_charges: values.freight_charges ?? 0,
       };
 
       if (view === 'edit') {
@@ -137,6 +157,28 @@ export default function ASNs() {
     } catch (err) { message.error(err.response?.data?.error || 'Action failed'); }
   };
 
+  const openMatchModal = () => {
+    setMatchStatus(selected.three_way_match_status || 'matched');
+    setMatchDiscrepancyFlag(!!selected.discrepancy_flag);
+    setMatchDiscrepancyReason(selected.discrepancy_reason || '');
+    setMatchModalOpen(true);
+  };
+
+  const handleThreeWayMatch = async () => {
+    try {
+      await api.put(`/asns/${selected.id}/three-way-match`, {
+        three_way_match_status: matchStatus,
+        discrepancy_flag: matchDiscrepancyFlag,
+        discrepancy_reason: matchDiscrepancyReason || null,
+      });
+      message.success('Three-way match status updated');
+      setMatchModalOpen(false);
+      const res = await api.get(`/asns/${selected.id}`);
+      setSelected(res.data.data);
+      fetchData(pagination.current, pagination.pageSize);
+    } catch (err) { message.error(err.response?.data?.error || 'Failed to update match status'); }
+  };
+
   const updateLineItem = (i, field, value) => {
     setLineItems(lineItems.map((item, idx) => {
       if (idx !== i) return item;
@@ -162,6 +204,7 @@ export default function ASNs() {
             {user.role !== 'vendor' && selected.status === 'submitted' && <Button type="primary" icon={<CheckOutlined />} onClick={() => handleAction('validate')}>Validate</Button>}
             {user.role !== 'vendor' && selected.status === 'submitted' && <Button danger icon={<CloseOutlined />} onClick={() => setRejectModalOpen(true)}>Reject</Button>}
             {user.role !== 'vendor' && selected.status === 'validated' && <Button type="primary" icon={<SendOutlined />} style={{ background: '#52c41a' }} onClick={() => handleAction('post')}>Post to ERP</Button>}
+            {user.role === 'procurement_admin' && <Button icon={<AuditOutlined />} onClick={openMatchModal}>3-Way Match</Button>}
           </Space>
         </div>
         <Row gutter={[16, 16]}>
@@ -175,6 +218,23 @@ export default function ASNs() {
           <Col span={8}><Card size="small"><Text type="secondary">ERP Status</Text><br /><Text strong>{selected.erp_posting_status || '—'}</Text></Card></Col>
           <Col span={8}><Card size="small"><Text type="secondary">Vendor</Text><br /><Text strong>{selected.vendor_name || '—'}</Text></Card></Col>
         </Row>
+        <Card title="Shipment &amp; Tax Details" size="small" style={{ marginTop: 16 }}>
+          <Row gutter={[16, 16]}>
+            <Col span={6}><Text type="secondary">Shipment Mode</Text><br /><Text strong>{selected.shipment_mode ? selected.shipment_mode.toUpperCase() : '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">Vehicle Number</Text><br /><Text strong>{selected.vehicle_number || '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">E-Way Bill Number</Text><br /><Text strong>{selected.eway_bill_number || '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">Dispatch Date</Text><br /><Text strong>{selected.dispatch_date ? dayjs(selected.dispatch_date).format('DD-MM-YYYY') : '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">Actual Delivery Date</Text><br /><Text strong>{selected.actual_delivery_date ? dayjs(selected.actual_delivery_date).format('DD-MM-YYYY') : '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">Invoice Currency</Text><br /><Text strong>{selected.invoice_currency || 'INR'}</Text></Col>
+            <Col span={6}><Text type="secondary">Exchange Rate</Text><br /><Text strong>{selected.exchange_rate ?? 1}</Text></Col>
+            <Col span={6}><Text type="secondary">Freight Charges</Text><br /><Text strong>₹{Number(selected.freight_charges || 0).toLocaleString()}</Text></Col>
+            <Col span={6}><Text type="secondary">CGST</Text><br /><Text strong>₹{Number(selected.cgst_amount || 0).toLocaleString()}</Text></Col>
+            <Col span={6}><Text type="secondary">SGST</Text><br /><Text strong>₹{Number(selected.sgst_amount || 0).toLocaleString()}</Text></Col>
+            <Col span={6}><Text type="secondary">IGST</Text><br /><Text strong>₹{Number(selected.igst_amount || 0).toLocaleString()}</Text></Col>
+            <Col span={6}><Text type="secondary">3-Way Match Status</Text><br /><Tag color={MATCH_STATUS_COLOR[selected.three_way_match_status] || 'default'}>{(selected.three_way_match_status || 'pending').toUpperCase()}</Tag></Col>
+            {!!selected.discrepancy_flag && <Col span={24}><Card size="small" style={{ borderColor: '#ff4d4f' }}><Text type="secondary">Discrepancy Reason</Text><br /><Text strong style={{ color: '#ff4d4f' }}>{selected.discrepancy_reason || '—'}</Text></Card></Col>}
+          </Row>
+        </Card>
         {selected.line_items?.length > 0 && (
           <Card title="Line Items" size="small" style={{ marginTop: 16 }}>
             <Table size="small" dataSource={selected.line_items} rowKey="id" pagination={false} columns={[
@@ -185,6 +245,23 @@ export default function ASNs() {
             ]} />
           </Card>
         )}
+        <Modal title="3-Way Match — PO vs ASN vs Invoice" open={matchModalOpen} onCancel={() => setMatchModalOpen(false)} onOk={handleThreeWayMatch} okText="Save">
+          <Form layout="vertical">
+            <Form.Item label="Match Status">
+              <Select value={matchStatus} onChange={setMatchStatus} options={[
+                { value: 'matched', label: 'Matched' },
+                { value: 'mismatched', label: 'Mismatched' },
+                { value: 'pending', label: 'Pending' },
+              ]} />
+            </Form.Item>
+            <Form.Item>
+              <Checkbox checked={matchDiscrepancyFlag} onChange={e => setMatchDiscrepancyFlag(e.target.checked)}>Discrepancy Found</Checkbox>
+            </Form.Item>
+            <Form.Item label="Discrepancy Reason">
+              <Input.TextArea rows={3} placeholder="Describe the discrepancy (if any)" value={matchDiscrepancyReason} onChange={e => setMatchDiscrepancyReason(e.target.value)} />
+            </Form.Item>
+          </Form>
+        </Modal>
       </div>
     );
   }
@@ -252,6 +329,29 @@ export default function ASNs() {
                 <Row gutter={16}>
                   <Col span={6}><Form.Item name="additional_info4" label="Additional Info 4"><Input placeholder="Optional" /></Form.Item></Col>
                   <Col span={18}><Form.Item name="remarks" label="Remarks / Comments"><Input placeholder="Any additional notes" /></Form.Item></Col>
+                </Row>
+                <Divider />
+                <Title level={5}>Shipment Details</Title>
+                <Row gutter={16}>
+                  <Col span={6}><Form.Item name="shipment_mode" label="Shipment Mode"><Select allowClear placeholder="Select mode" options={SHIPMENT_MODE_OPTIONS} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="vehicle_number" label="Vehicle Number"><Input placeholder="e.g. MH12AB1234" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="eway_bill_number" label="E-Way Bill Number"><Input placeholder="E-way bill #" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="dispatch_date" label="Dispatch Date"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col span={6}><Form.Item name="actual_delivery_date" label="Actual Delivery Date"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                </Row>
+                <Divider />
+                <Title level={5}>Invoice &amp; Tax Details</Title>
+                <Row gutter={16}>
+                  <Col span={6}><Form.Item name="invoice_currency" label="Invoice Currency" initialValue="INR"><Select options={CURRENCY_OPTIONS} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="exchange_rate" label="Exchange Rate" initialValue={1}><InputNumber min={0} step={0.0001} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="freight_charges" label="Freight Charges" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col span={6}><Form.Item name="cgst_amount" label="CGST Amount" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="sgst_amount" label="SGST Amount" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="igst_amount" label="IGST Amount" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
                 </Row>
               </div>
             )}

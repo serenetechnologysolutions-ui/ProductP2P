@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, InputNumber, Select, DatePicker, Row, Col, Card, Typography, Divider, Space, Tag, message } from 'antd';
-import { PlusOutlined, SaveOutlined, DeleteOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons';
+import { Table, Button, Form, Input, InputNumber, Select, DatePicker, Row, Col, Card, Typography, Divider, Space, Tag, Checkbox, message } from 'antd';
+import { PlusOutlined, SaveOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
 
 const { Title, Text } = Typography;
+const INCOTERM_OPTIONS = ['EXW', 'FOB', 'CIF', 'CPT', 'DDP', 'DAP'].map(v => ({ value: v, label: v }));
 
 export default function PurchaseOrders() {
   const [data, setData] = useState([]);
@@ -15,6 +16,7 @@ export default function PurchaseOrders() {
   const [vendors, setVendors] = useState([]);
   const [filterPoNumber, setFilterPoNumber] = useState('');
   const [filterStatus, setFilterStatus] = useState(undefined);
+  const [deliverySchedule, setDeliverySchedule] = useState([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -28,19 +30,29 @@ export default function PurchaseOrders() {
     try {
       const values = await form.validateFields();
       const totalAmount = items.reduce((s, i) => s + (i.total_line_amount || 0), 0);
+      const delivery_schedule_json = deliverySchedule
+        .filter(d => d.milestone || d.date || d.quantity_percent)
+        .map(d => ({ milestone: d.milestone || '', date: d.date ? dayjs(d.date).format('YYYY-MM-DD') : null, quantity_percent: d.quantity_percent ?? null }));
       await api.post('/purchase-orders', {
         ...values,
         po_date: values.po_date?.format('YYYY-MM-DD'),
         validity_date: values.validity_date?.format('YYYY-MM-DD'),
         total_amount: totalAmount,
         line_items: items,
+        delivery_schedule_json: delivery_schedule_json.length > 0 ? delivery_schedule_json : null,
       });
       message.success('PO created');
       setShowForm(false); form.resetFields();
       setItems([{ description: '', hsn_sac: '', quantity: 1, uom: 'Nos', unit_price: 0, tax_percent: 18, amount: 0, tax_amount: 0, total_line_amount: 0 }]);
+      setDeliverySchedule([]);
       fetchData();
     } catch (err) { message.error(err.response?.data?.error || 'Error'); }
   };
+
+  // Delivery schedule helpers (mirrors complianceDates pattern in Vendors.jsx)
+  const addDeliveryMilestone = () => setDeliverySchedule([...deliverySchedule, { milestone: '', date: null, quantity_percent: null }]);
+  const removeDeliveryMilestone = (i) => setDeliverySchedule(deliverySchedule.filter((_, idx) => idx !== i));
+  const updateDeliveryMilestone = (i, field, value) => setDeliverySchedule(deliverySchedule.map((d, idx) => idx === i ? { ...d, [field]: value } : d));
 
   const updateItem = (i, field, value) => {
     setItems(items.map((item, idx) => {
@@ -66,6 +78,8 @@ export default function PurchaseOrders() {
     { title: 'GSTIN', dataIndex: 'gstin', render: v => v || '—' },
     { title: 'Amount', dataIndex: 'total_amount', render: v => `₹${Number(v || 0).toLocaleString()}` },
     { title: 'Validity', dataIndex: 'validity_date', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—' },
+    { title: 'Incoterms', dataIndex: 'incoterms', render: v => v || '—' },
+    { title: 'Cost Center', dataIndex: 'cost_center', render: v => v || '—' },
     { title: 'Status', dataIndex: 'status', render: v => <Tag color={v === 'open' ? 'blue' : 'green'}>{v}</Tag> },
   ];
 
@@ -123,6 +137,31 @@ export default function PurchaseOrders() {
               <Col span={4}><Form.Item name="state_code" label="State Code"><Input placeholder="27" maxLength={4} /></Form.Item></Col>
               <Col span={8}><Form.Item name="terms_of_payment" label="Terms of Payment"><Input placeholder="Net 30 days" /></Form.Item></Col>
             </Row>
+
+            <Divider />
+            <Title level={5}>Contract &amp; Commercial Terms</Title>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="contract_id" label="Contract ID"><Input placeholder="Linked contract reference" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="incoterms" label="Incoterms"><Select allowClear placeholder="Select Incoterms" options={INCOTERM_OPTIONS} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="cost_center" label="Cost Center"><Input placeholder="e.g. CC-1001" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="project_code" label="Project Code"><Input placeholder="e.g. PRJ-2024-01" /></Form.Item></Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}><Form.Item name="budget_code" label="Budget Code"><Input placeholder="e.g. BUD-2024-01" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="retention_percentage" label="Retention %"><InputNumber min={0} max={100} style={{ width: '100%' }} placeholder="0-100" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="partial_delivery_allowed_flag" label=" " valuePropName="checked" initialValue={true}><Checkbox defaultChecked>Partial Delivery Allowed</Checkbox></Form.Item></Col>
+            </Row>
+
+            <Title level={5} style={{ marginTop: 8 }}>Delivery Schedule</Title>
+            {deliverySchedule.map((d, i) => (
+              <Row gutter={12} key={i} style={{ marginBottom: 8 }} align="middle">
+                <Col span={10}><Input placeholder="Milestone (e.g. First Lot)" value={d.milestone} onChange={e => updateDeliveryMilestone(i, 'milestone', e.target.value)} /></Col>
+                <Col span={8}><DatePicker style={{ width: '100%' }} placeholder="Delivery date" value={d.date ? dayjs(d.date) : null} onChange={val => updateDeliveryMilestone(i, 'date', val)} /></Col>
+                <Col span={4}><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Qty %" value={d.quantity_percent} onChange={val => updateDeliveryMilestone(i, 'quantity_percent', val)} /></Col>
+                <Col span={2}><Button icon={<DeleteOutlined />} size="small" danger onClick={() => removeDeliveryMilestone(i)} /></Col>
+              </Row>
+            ))}
+            <Button type="dashed" icon={<PlusCircleOutlined />} onClick={addDeliveryMilestone} block>Add Delivery Milestone</Button>
 
             <Divider />
             <Title level={5}>Purchase Lines</Title>

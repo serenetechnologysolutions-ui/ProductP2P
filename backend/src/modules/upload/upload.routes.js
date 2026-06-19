@@ -39,4 +39,10 @@ router.post('/asn-invoice', authenticate, upload.single('file'), asyncHandler(as
   res.json({ success: true, data: { file_name: req.file.originalname, file_path: req.file.path } });
 }));
 
+// POST /api/upload/file — generic attachment upload (RFQ line items, vendor bid items, etc.)
+// Returns the stored path/name only; the caller links it to its own record.
+router.post('/file', authenticate, upload.single('file'), asyncHandler(async (req, res) => {
+  res.status(201).json({ success: true, data: { file_name: req.file.originalname, file_path: req.file.path } });
+}));
+
 module.exports = router;

@@ -8,19 +8,23 @@ const { authenticate, requireRole } = require('../auth/auth.middleware');
 const router = express.Router();
 
 // GET /api/tickets — List tickets
+// NOTE: sla_breach_flag is computed on the fly here rather than trusting the stored column,
+// since there is no scheduled job in this app to keep the stored column fresh.
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   let sql, params = [];
 
+  const breachExpr = `, (sla_due_date IS NOT NULL AND sla_due_date < NOW() AND status NOT IN ('closed','vendor_closed')) AS sla_breach_flag`;
+
   if (req.user.role === 'vendor') {
     // Vendor sees only tickets assigned to them
-    sql = `SELECT t.* FROM tickets t
+    sql = `SELECT t.*${breachExpr.replace('sla_due_date', 't.sla_due_date').replace('status', 't.status')} FROM tickets t
            INNER JOIN ticket_vendors tv ON t.id = tv.ticket_id
            WHERE tv.vendor_id = ?
            ORDER BY t.created_at DESC`;
     params.push(req.user.vendorId);
   } else {
     // Admin sees all
-    sql = 'SELECT * FROM tickets ORDER BY created_at DESC';
+    sql = `SELECT *${breachExpr} FROM tickets ORDER BY created_at DESC`;
   }
 
   const [rows] = await pool.query(sql, params);
@@ -29,7 +33,7 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
 
 // POST /api/tickets — Create ticket (admin only)
 router.post('/', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
-  const { subject, description, priority, vendor_ids } = req.body;
+  const { subject, description, priority, vendor_ids, category, sla_hours } = req.body;
 
   const missing = [];
   if (!subject) missing.push('subject');
@@ -44,10 +48,17 @@ router.post('/', authenticate, requireRole('procurement_admin', 'mdm_admin'), as
   const ticketNumber = `TKT-${String(nextNum).padStart(5, '0')}`;
 
   const ticketId = uuidv4();
-  await pool.query(
-    'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-    [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id]
-  );
+  if (sla_hours) {
+    await pool.query(
+      'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by, category, sla_due_date) VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR))',
+      [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id, category || null, sla_hours]
+    );
+  } else {
+    await pool.query(
+      'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by, category) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id, category || null]
+    );
+  }
 
   // Assign vendors
   for (const vendorId of vendor_ids) {
@@ -64,7 +75,11 @@ router.post('/', authenticate, requireRole('procurement_admin', 'mdm_admin'), as
 router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const [tickets] = await pool.query('SELECT * FROM tickets WHERE id = ?', [id]);
+  const [tickets] = await pool.query(
+    `SELECT *, (sla_due_date IS NOT NULL AND sla_due_date < NOW() AND status NOT IN ('closed','vendor_closed')) AS sla_breach_flag
+     FROM tickets WHERE id = ?`,
+    [id]
+  );
   if (tickets.length === 0) throw new NotFoundError('Ticket not found');
 
   const ticket = tickets[0];
@@ -177,7 +192,7 @@ router.put('/:id/reassign', authenticate, requireRole('procurement_admin', 'mdm_
 // PUT /api/tickets/:id/close — Admin closes ticket
 router.put('/:id/close', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { rating, closure_remarks } = req.body;
+  const { rating, closure_remarks, root_cause, resolution_type } = req.body;
 
   const missing = [];
   if (!rating || rating < 1 || rating > 5) missing.push('rating (1-5)');
@@ -188,11 +203,26 @@ router.put('/:id/close', authenticate, requireRole('procurement_admin', 'mdm_adm
   if (tickets.length === 0) throw new NotFoundError('Ticket not found');
 
   await pool.query(
-    "UPDATE tickets SET status = 'closed', rating = ?, closure_remarks = ?, closed_at = NOW() WHERE id = ?",
-    [rating, closure_remarks, id]
+    "UPDATE tickets SET status = 'closed', rating = ?, closure_remarks = ?, root_cause = ?, resolution_type = ?, closed_at = NOW() WHERE id = ?",
+    [rating, closure_remarks, root_cause || null, resolution_type || null, id]
   );
 
   res.json({ success: true, message: 'Ticket closed' });
+}));
+
+// PUT /api/tickets/:id/category — Admin categorizes/recategorizes a ticket
+router.put('/:id/category', authenticate, requireRole('procurement_admin', 'mdm_admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { category } = req.body;
+
+  if (!category) throw new ValidationError('Missing required field', ['category']);
+
+  const [tickets] = await pool.query('SELECT id FROM tickets WHERE id = ?', [id]);
+  if (tickets.length === 0) throw new NotFoundError('Ticket not found');
+
+  await pool.query('UPDATE tickets SET category = ? WHERE id = ?', [category, id]);
+
+  res.json({ success: true, message: 'Ticket category updated' });
 }));
 
 module.exports = router;
