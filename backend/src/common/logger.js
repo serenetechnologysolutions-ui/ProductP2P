@@ -21,29 +21,23 @@ const logger = {
   info(message, meta = {}) {
     const log = formatLog('INFO', message, meta);
     process.stdout.write(log);
-    writeToFile('app.log', log);
   },
   warn(message, meta = {}) {
     const log = formatLog('WARN', message, meta);
     process.stdout.write(log);
-    writeToFile('app.log', log);
   },
   error(message, meta = {}) {
     const log = formatLog('ERROR', message, meta);
     process.stderr.write(log);
-    writeToFile('error.log', log);
-    writeToFile('app.log', log);
   },
   audit(message, meta = {}) {
     const log = formatLog('AUDIT', message, meta);
     writeToFile('audit.log', log);
-    writeToFile('app.log', log);
   },
   security(message, meta = {}) {
     const log = formatLog('SECURITY', message, meta);
     process.stderr.write(log);
     writeToFile('security.log', log);
-    writeToFile('app.log', log);
   },
 };
 
