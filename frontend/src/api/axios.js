@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: `${API_BASE_URL}/api`,
 });
 
 api.interceptors.request.use((config) => {
@@ -15,7 +16,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Only force a redirect for a session that *was* authenticated and got
+    // invalidated — not for a 401 from the login attempt itself, which is just
+    // "wrong password" and needs to show inline on the login form, not wipe it
+    // out from under the user via a hard navigation.
+    const isLoginRequest = error.config?.url?.includes('/auth/login');
+    if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('vendor_token');
       localStorage.removeItem('vendor_user');
       window.location.href = '/login';

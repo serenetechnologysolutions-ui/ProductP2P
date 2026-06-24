@@ -26,9 +26,11 @@ export default function Login() {
       localStorage.setItem('vendor_token', res.data.token);
       localStorage.setItem('vendor_user', JSON.stringify(res.data.user));
       if (res.data.user.mustResetPassword) {
-        navigate('/change-password');
+        navigate('/change-password', { replace: true });
       } else {
-        navigate('/');
+        // Always land on the dashboard after login, regardless of whatever
+        // route was last open in this tab before the session ended.
+        navigate('/', { replace: true });
       }
     } catch (err) { setError(err.response?.data?.error || 'Login failed'); }
     setLoading(false);

@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, Select, DatePicker, Tag, Space, Card, Typography, Modal, Upload, message, Row, Col } from 'antd';
+import { Table, Button, Form, Input, Select, DatePicker, Tag, Space, Card, Typography, Drawer, Upload, message, Row, Col } from 'antd';
 import { UploadOutlined, SearchOutlined, ClearOutlined, CheckOutlined, CloseOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
+import { API_BASE_URL } from '../config';
 
 const { Title, Text } = Typography;
 
-const MODULE_OPTIONS = ['vendor', 'purchase_order', 'asn', 'rfq', 'ticket', 'audit', 'esg'].map(m => ({ value: m, label: m.replace('_', ' ').toUpperCase() }));
+const MODULE_OPTIONS = ['vendor', 'purchase_requisition', 'purchase_order', 'asn', 'rfq', 'ticket', 'audit', 'esg'].map(m => ({ value: m, label: m.replace('_', ' ').toUpperCase() }));
 const STATUS_COLOR = { pending: 'default', verified: 'green', rejected: 'red' };
 
 export default function DocumentCenter() {
@@ -17,6 +19,7 @@ export default function DocumentCenter() {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [form] = Form.useForm();
+  const { isRequired } = useFieldConfig('document');
 
   const fetchData = useCallback(async (overrideFilters) => {
     setLoading(true);
@@ -72,7 +75,7 @@ export default function DocumentCenter() {
   };
 
   const columns = [
-    { title: 'File Name', dataIndex: 'file_name', render: (v, r) => <a href={`http://localhost:5000/uploads/${r.file_url?.split(/[\\/]/).pop()}`} target="_blank" rel="noreferrer">{v}</a> },
+    { title: 'File Name', dataIndex: 'file_name', render: (v, r) => <a href={`${API_BASE_URL}/uploads/${r.file_url?.split(/[\\/]/).pop()}`} target="_blank" rel="noreferrer">{v}</a> },
     { title: 'Module', dataIndex: 'module_name', width: 120, render: v => <Tag color="blue">{v}</Tag> },
     { title: 'Record ID', dataIndex: 'record_id', width: 200, ellipsis: true, render: v => v || <Text type="secondary">—</Text> },
     { title: 'File Type', dataIndex: 'file_type', width: 110, render: v => v || <Text type="secondary">—</Text> },
@@ -124,7 +127,7 @@ export default function DocumentCenter() {
 
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle" pagination={{ pageSize: 20 }} />
 
-      <Modal title="Upload Document" open={uploadModalOpen} onCancel={closeUploadModal} footer={null} destroyOnClose>
+      <Drawer title="Upload Document" open={uploadModalOpen} onClose={closeUploadModal} width={480} destroyOnClose>
         <Upload.Dragger
           maxCount={1}
           beforeUpload={(file) => { setUploadFile(file); return false; }}
@@ -136,29 +139,29 @@ export default function DocumentCenter() {
         </Upload.Dragger>
 
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="module_name" label="Module" rules={[{ required: true, message: 'Select a module' }]}>
+          <Form.Item name="module_name" label="Module" rules={[{ required: isRequired('module_name', true), message: 'Select a module' }]}>
             <Select placeholder="Select module" options={MODULE_OPTIONS} />
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="record_id" label="Record ID">
+              <Form.Item name="record_id" label="Record ID" rules={[{ required: isRequired('record_id', false), message: 'Record ID is required' }]}>
                 <Input placeholder="Optional" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="file_type" label="File Type">
+              <Form.Item name="file_type" label="File Type" rules={[{ required: isRequired('file_type', false), message: 'File Type is required' }]}>
                 <Input placeholder="e.g. pdf, image, certificate" />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="document_group_id" label="Document Group ID">
+              <Form.Item name="document_group_id" label="Document Group ID" rules={[{ required: isRequired('document_group_id', false), message: 'Document Group ID is required' }]}>
                 <Input placeholder="Optional — leave blank to create a new group" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="expiry_date" label="Expiry Date">
+              <Form.Item name="expiry_date" label="Expiry Date" rules={[{ required: isRequired('expiry_date', false), message: 'Expiry Date is required' }]}>
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
@@ -171,7 +174,7 @@ export default function DocumentCenter() {
             <Button type="primary" icon={<UploadOutlined />} loading={uploading} onClick={handleUpload}>Upload</Button>
           </Space>
         </div>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

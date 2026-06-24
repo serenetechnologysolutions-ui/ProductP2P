@@ -14,4 +14,11 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: 0,
 });
 
+// Without this listener, an idle-connection error (DB restart, network blip) emits
+// an 'error' event with no listener, which Node treats as an uncaught exception
+// and crashes the whole process instead of just failing the in-flight query.
+pool.on('error', (err) => {
+  require('../common/logger').logger.error('MySQL pool error', { error: err.message, code: err.code });
+});
+
 module.exports = { pool };

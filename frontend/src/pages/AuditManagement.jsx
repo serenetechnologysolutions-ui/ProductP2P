@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Row, Col, Card, Modal, Typography, Tabs, DatePicker, Divider, Popconfirm, Radio, message } from 'antd';
+import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Row, Col, Card, Drawer, Typography, Tabs, DatePicker, Divider, Popconfirm, Radio, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -35,6 +36,10 @@ export default function AuditManagement() {
   const [completeForm] = Form.useForm();
 
   const [vendors, setVendors] = useState([]);
+  const { isRequired: isChecklistFieldRequired } = useFieldConfig('audit_checklist');
+  const { isRequired: isScheduleFieldRequired } = useFieldConfig('audit_schedule');
+  const { isRequired: isFindingFieldRequired } = useFieldConfig('audit_finding');
+  const { isRequired: isCompleteFieldRequired } = useFieldConfig('audit_complete');
 
   const fetchChecklists = async () => {
     setChecklistLoading(true);
@@ -296,24 +301,34 @@ export default function AuditManagement() {
           <Button size="large" onClick={() => setExecutionDetail(null)}>Cancel</Button>
         </Space>
 
-        <Modal title="Add Finding" open={findingModal} onCancel={() => setFindingModal(false)} onOk={handleAddFinding} okText="Add">
+        <Drawer title="Add Finding" open={findingModal} onClose={() => setFindingModal(false)} width={480} footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setFindingModal(false)}>Cancel</Button>
+            <Button type="primary" onClick={handleAddFinding}>Add</Button>
+          </Space>
+        }>
           <Form form={findingForm} layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item name="description" label="Finding Description" rules={[{ required: true }]}><TextArea rows={3} placeholder="Describe the finding" /></Form.Item>
-            <Form.Item name="severity" label="Severity" rules={[{ required: true }]}>
+            <Form.Item name="description" label="Finding Description" rules={[{ required: isFindingFieldRequired('description', true), message: 'Finding Description is required' }]}><TextArea rows={3} placeholder="Describe the finding" /></Form.Item>
+            <Form.Item name="severity" label="Severity" rules={[{ required: isFindingFieldRequired('severity', true), message: 'Severity is required' }]}>
               <Select placeholder="Select severity" options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }]} />
             </Form.Item>
-            <Form.Item name="assigned_to" label="Assign Corrective Action To"><Input placeholder="Person or team responsible" /></Form.Item>
-            <Form.Item name="capa_action_owner" label="CAPA Action Owner"><Input placeholder="Person or team accountable for the corrective action" /></Form.Item>
-            <Form.Item name="capa_due_date" label="CAPA Due Date"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="assigned_to" label="Assign Corrective Action To" rules={[{ required: isFindingFieldRequired('assigned_to', false), message: 'Assign Corrective Action To is required' }]}><Input placeholder="Person or team responsible" /></Form.Item>
+            <Form.Item name="capa_action_owner" label="CAPA Action Owner" rules={[{ required: isFindingFieldRequired('capa_action_owner', false), message: 'CAPA Action Owner is required' }]}><Input placeholder="Person or team accountable for the corrective action" /></Form.Item>
+            <Form.Item name="capa_due_date" label="CAPA Due Date" rules={[{ required: isFindingFieldRequired('capa_due_date', false), message: 'CAPA Due Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
           </Form>
-        </Modal>
+        </Drawer>
 
-        <Modal title="Complete Audit" open={completeModal} onCancel={() => setCompleteModal(false)} onOk={handleCompleteExecution} okText="Complete">
+        <Drawer title="Complete Audit" open={completeModal} onClose={() => setCompleteModal(false)} width={420} footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setCompleteModal(false)}>Cancel</Button>
+            <Button type="primary" onClick={handleCompleteExecution}>Complete</Button>
+          </Space>
+        }>
           <Form form={completeForm} layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item name="audit_score" label="Audit Score (0-100)"><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Overall audit score" /></Form.Item>
-            <Form.Item name="compliance_percentage" label="Compliance Percentage (0-100)"><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Compliance %" /></Form.Item>
+            <Form.Item name="audit_score" label="Audit Score (0-100)" rules={[{ required: isCompleteFieldRequired('audit_score', false), message: 'Audit Score is required' }]}><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Overall audit score" /></Form.Item>
+            <Form.Item name="compliance_percentage" label="Compliance Percentage (0-100)" rules={[{ required: isCompleteFieldRequired('compliance_percentage', false), message: 'Compliance Percentage is required' }]}><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Compliance %" /></Form.Item>
           </Form>
-        </Modal>
+        </Drawer>
       </div>
     );
   }
@@ -408,12 +423,17 @@ export default function AuditManagement() {
         )},
       ]} />
 
-      {/* Checklist Modal */}
-      <Modal title={editingChecklist ? 'Edit Checklist' : 'Create Checklist'} open={checklistModal} onCancel={() => setChecklistModal(false)} onOk={handleSaveChecklist} okText={editingChecklist ? 'Update' : 'Create'} width={600}>
+      {/* Checklist Drawer */}
+      <Drawer title={editingChecklist ? 'Edit Checklist' : 'Create Checklist'} open={checklistModal} onClose={() => setChecklistModal(false)} width={600} footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setChecklistModal(false)}>Cancel</Button>
+          <Button type="primary" onClick={handleSaveChecklist}>{editingChecklist ? 'Update' : 'Create'}</Button>
+        </Space>
+      }>
         <Form form={checklistForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="Checklist Name" rules={[{ required: true }]}><Input placeholder="e.g. Quality Compliance Audit" /></Form.Item>
-          <Form.Item name="description" label="Description"><TextArea rows={2} placeholder="Description" /></Form.Item>
-          <Form.Item name="category" label="Category" rules={[{ required: true }]}>
+          <Form.Item name="name" label="Checklist Name" rules={[{ required: isChecklistFieldRequired('name', true), message: 'Checklist Name is required' }]}><Input placeholder="e.g. Quality Compliance Audit" /></Form.Item>
+          <Form.Item name="description" label="Description" rules={[{ required: isChecklistFieldRequired('description', false), message: 'Description is required' }]}><TextArea rows={2} placeholder="Description" /></Form.Item>
+          <Form.Item name="category" label="Category" rules={[{ required: isChecklistFieldRequired('category', true), message: 'Category is required' }]}>
             <Select placeholder="Select" options={[{ value: 'quality', label: 'Quality' }, { value: 'compliance', label: 'Compliance' }, { value: 'safety', label: 'Safety' }, { value: 'environmental', label: 'Environmental' }, { value: 'general', label: 'General' }]} />
           </Form.Item>
           <Divider orientation="left">Checklist Items</Divider>
@@ -425,23 +445,28 @@ export default function AuditManagement() {
           ))}
           <Button type="dashed" onClick={() => setChecklistItems([...checklistItems, ''])} icon={<PlusOutlined />} block>Add Item</Button>
         </Form>
-      </Modal>
+      </Drawer>
 
-      {/* Schedule Modal */}
-      <Modal title="Create Schedule" open={scheduleModal} onCancel={() => setScheduleModal(false)} onOk={handleCreateSchedule} okText="Create" width={500}>
+      {/* Schedule Drawer */}
+      <Drawer title="Create Schedule" open={scheduleModal} onClose={() => setScheduleModal(false)} width={500} footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setScheduleModal(false)}>Cancel</Button>
+          <Button type="primary" onClick={handleCreateSchedule}>Create</Button>
+        </Space>
+      }>
         <Form form={scheduleForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="checklist_id" label="Checklist" rules={[{ required: true }]}><Select placeholder="Select" options={checklists.map(c => ({ value: c.id, label: c.name }))} /></Form.Item>
-          <Form.Item name="vendor_id" label="Vendor (optional)"><Select placeholder="Select vendor" allowClear options={vendors.map(v => ({ value: v.id, label: v.vendor_name }))} /></Form.Item>
-          <Form.Item name="vendor_group" label="Or Vendor Group"><Input placeholder="e.g. Tier 1" /></Form.Item>
-          <Form.Item name="frequency" label="Frequency" rules={[{ required: true }]}>
+          <Form.Item name="checklist_id" label="Checklist" rules={[{ required: isScheduleFieldRequired('checklist_id', true), message: 'Checklist is required' }]}><Select placeholder="Select" options={checklists.map(c => ({ value: c.id, label: c.name }))} /></Form.Item>
+          <Form.Item name="vendor_id" label="Vendor (optional)" rules={[{ required: isScheduleFieldRequired('vendor_id', false), message: 'Vendor is required' }]}><Select placeholder="Select vendor" allowClear options={vendors.map(v => ({ value: v.id, label: v.vendor_name }))} /></Form.Item>
+          <Form.Item name="vendor_group" label="Or Vendor Group" rules={[{ required: isScheduleFieldRequired('vendor_group', false), message: 'Vendor Group is required' }]}><Input placeholder="e.g. Tier 1" /></Form.Item>
+          <Form.Item name="frequency" label="Frequency" rules={[{ required: isScheduleFieldRequired('frequency', true), message: 'Frequency is required' }]}>
             <Select placeholder="Select" options={[{ value: 'one_time', label: 'One Time' }, { value: 'weekly', label: 'Weekly' }, { value: 'monthly', label: 'Monthly' }, { value: 'quarterly', label: 'Quarterly' }]} />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={12}><Form.Item name="start_date" label="From Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="end_date" label="To Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="start_date" label="From Date" rules={[{ required: isScheduleFieldRequired('start_date', true), message: 'From Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="end_date" label="To Date" rules={[{ required: isScheduleFieldRequired('end_date', true), message: 'To Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
           </Row>
         </Form>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

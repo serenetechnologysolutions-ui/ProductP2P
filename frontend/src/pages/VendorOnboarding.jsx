@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Form, Input, InputNumber, Button, Steps, Row, Col, Card, Typography, Divider, Select, Upload, Checkbox, Space, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
+import { API_BASE_URL } from '../config';
 
 const { Title, Text } = Typography;
-const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
 
 export default function VendorOnboarding() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -14,6 +15,7 @@ export default function VendorOnboarding() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [subMasters, setSubMasters] = useState({});
+  const { isRequired } = useFieldConfig('vendor');
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
 
@@ -37,7 +39,7 @@ export default function VendorOnboarding() {
   useEffect(() => {
     (async () => {
       try {
-        const cats = ['city', 'state', 'country', 'vendor_type', 'industry', 'registration_type'];
+        const cats = ['city', 'state', 'country', 'vendor_type', 'industry', 'registration_type', 'msme_type', 'currency'];
         const results = {};
         for (const cat of cats) { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; }
         setSubMasters(results);
@@ -97,27 +99,27 @@ export default function VendorOnboarding() {
               <Divider />
               <Title level={5}>Business Information</Title>
               <Row gutter={16}>
-                <Col span={6}><Form.Item name="gst_number" label="GST Number"><Input placeholder="15-char GST" maxLength={15} /></Form.Item></Col>
-                <Col span={6}><Form.Item name="pan_number" label="PAN Number"><Input placeholder="10-char PAN" maxLength={10} style={{ textTransform: 'uppercase' }} /></Form.Item></Col>
-                <Col span={6}><Form.Item name="trade_name" label="Trade Name"><Input placeholder="Trade name" /></Form.Item></Col>
-                <Col span={6}><Form.Item name="legal_name" label="Legal Name"><Input placeholder="Legal name" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="gst_number" label="GST Number" rules={[{ required: isRequired('gst_number', false), message: 'GST Number is required' }]}><Input placeholder="15-char GST" maxLength={15} /></Form.Item></Col>
+                <Col span={6}><Form.Item name="pan_number" label="PAN Number" rules={[{ required: isRequired('pan_number', false), message: 'PAN Number is required' }]}><Input placeholder="10-char PAN" maxLength={10} style={{ textTransform: 'uppercase' }} /></Form.Item></Col>
+                <Col span={6}><Form.Item name="trade_name" label="Trade Name" rules={[{ required: isRequired('trade_name', false), message: 'Trade Name is required' }]}><Input placeholder="Trade name" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="legal_name" label="Legal Name" rules={[{ required: isRequired('legal_name', false), message: 'Legal Name is required' }]}><Input placeholder="Legal name" /></Form.Item></Col>
               </Row>
               <Row gutter={16}>
-                <Col span={6}><Form.Item name="msme_type" label="MSME Type"><Select placeholder="Select" options={[{ value: 'micro' }, { value: 'small' }, { value: 'medium' }]} allowClear /></Form.Item></Col>
-                <Col span={6}><Form.Item name="itr_filing_status" label="ITR Filing"><Select placeholder="Select" options={[{ value: 'filed' }, { value: 'not_filed' }]} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="msme_type" label="MSME Type" rules={[{ required: isRequired('msme_type', false), message: 'MSME Type is required' }]}><Select placeholder="Select" options={(subMasters.msme_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="itr_filing_status" label="ITR Filing" rules={[{ required: isRequired('itr_filing_status', false), message: 'ITR Filing Status is required' }]}><Select placeholder="Select" options={[{ value: 'filed' }, { value: 'not_filed' }]} allowClear /></Form.Item></Col>
               </Row>
               <Divider />
               <Title level={5}>Classification</Title>
               <Row gutter={16}>
-                <Col span={6}><Form.Item name="vendor_type" label="Vendor Type"><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-                <Col span={6}><Form.Item name="industry" label="Industry"><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-                <Col span={6}><Form.Item name="registration_type" label="Registration Type"><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-                <Col span={6}><Form.Item name="currency_code" label="Preferred Currency"><Select placeholder="Select" options={CURRENCY_OPTIONS} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="vendor_type" label="Vendor Type" rules={[{ required: isRequired('vendor_type', false), message: 'Vendor Type is required' }]}><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="industry" label="Industry" rules={[{ required: isRequired('industry', false), message: 'Industry is required' }]}><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="registration_type" label="Registration Type" rules={[{ required: isRequired('registration_type', false), message: 'Registration Type is required' }]}><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+                <Col span={6}><Form.Item name="currency_code" label="Preferred Currency" rules={[{ required: isRequired('currency_code', false), message: 'Currency is required' }]}><Select placeholder="Select" options={(subMasters.currency || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
               </Row>
               <Row gutter={16}>
-                <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
-                <Col span={6}><Form.Item name="geo_longitude" label="Geo Longitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
-                <Col span={12}><Form.Item name="serviceable_regions" label="Serviceable Regions"><Select mode="tags" placeholder="Type a region and press enter" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude" rules={[{ required: isRequired('geo_latitude', false), message: 'Geo Latitude is required' }]}><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+                <Col span={6}><Form.Item name="geo_longitude" label="Geo Longitude" rules={[{ required: isRequired('geo_longitude', false), message: 'Geo Longitude is required' }]}><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+                <Col span={12}><Form.Item name="serviceable_regions" label="Serviceable Regions" rules={[{ required: isRequired('serviceable_regions', false), message: 'Serviceable Regions is required' }]}><Select mode="tags" placeholder="Type a region and press enter" /></Form.Item></Col>
               </Row>
             </div>
           )}
@@ -173,35 +175,35 @@ export default function VendorOnboarding() {
               <Row gutter={[16, 16]}>
                 <Col span={8}>
                   <Card size="small" title="PAN">
-                    <Upload action={`http://localhost:5000/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'pan' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
+                    <Upload action={`${API_BASE_URL}/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'pan' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
                       <Button icon={<UploadOutlined />} block>Upload PAN</Button>
                     </Upload>
                   </Card>
                 </Col>
                 <Col span={8}>
                   <Card size="small" title="GST Certificate">
-                    <Upload action={`http://localhost:5000/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'gst_certificate' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
+                    <Upload action={`${API_BASE_URL}/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'gst_certificate' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
                       <Button icon={<UploadOutlined />} block>Upload GST Certificate</Button>
                     </Upload>
                   </Card>
                 </Col>
                 <Col span={8}>
                   <Card size="small" title="CIN">
-                    <Upload action={`http://localhost:5000/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'cin' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
+                    <Upload action={`${API_BASE_URL}/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'cin' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
                       <Button icon={<UploadOutlined />} block>Upload CIN</Button>
                     </Upload>
                   </Card>
                 </Col>
                 <Col span={8}>
                   <Card size="small" title="MSME Certificate">
-                    <Upload action={`http://localhost:5000/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'msme_certificate' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
+                    <Upload action={`${API_BASE_URL}/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'msme_certificate' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
                       <Button icon={<UploadOutlined />} block>Upload MSME Certificate</Button>
                     </Upload>
                   </Card>
                 </Col>
                 <Col span={8}>
                   <Card size="small" title="Bank Proof">
-                    <Upload action={`http://localhost:5000/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'bank_proof' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
+                    <Upload action={`${API_BASE_URL}/api/upload/vendor-document`} data={{ vendor_id: user.vendorId, doc_type: 'bank_proof' }} headers={{ Authorization: `Bearer ${localStorage.getItem('vendor_token')}` }} maxCount={1}>
                       <Button icon={<UploadOutlined />} block>Upload Bank Proof</Button>
                     </Upload>
                   </Card>
@@ -213,10 +215,10 @@ export default function VendorOnboarding() {
             <div>
               <Title level={5}>Contact Information</Title>
               <Row gutter={16}>
-                <Col span={6}><Form.Item name="phone1" label="Phone 1"><Input placeholder="Primary phone" /></Form.Item></Col>
-                <Col span={6}><Form.Item name="phone2" label="Phone 2"><Input placeholder="Alternate phone" /></Form.Item></Col>
-                <Col span={6}><Form.Item name="email1" label="Email 1"><Input placeholder="Primary email" /></Form.Item></Col>
-                <Col span={6}><Form.Item name="email2" label="Email 2"><Input placeholder="Alternate email" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="phone1" label="Phone 1" rules={[{ required: isRequired('phone1', false), message: 'Phone 1 is required' }]}><Input placeholder="Primary phone" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="phone2" label="Phone 2" rules={[{ required: isRequired('phone2', false), message: 'Phone 2 is required' }]}><Input placeholder="Alternate phone" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="email1" label="Email 1" rules={[{ required: isRequired('email1', false), message: 'Email 1 is required' }]}><Input placeholder="Primary email" /></Form.Item></Col>
+                <Col span={6}><Form.Item name="email2" label="Email 2" rules={[{ required: isRequired('email2', false), message: 'Email 2 is required' }]}><Input placeholder="Alternate email" /></Form.Item></Col>
               </Row>
             </div>
           )}

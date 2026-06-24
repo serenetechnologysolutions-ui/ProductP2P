@@ -13,6 +13,14 @@ router.get('/settings', authenticate, requireRole('system_admin', 'mdm_admin'), 
   res.json({ success: true, data: rows });
 }));
 
+// GET /api/system/settings/:key — single-setting lookup, open to any authenticated
+// role (unlike the bulk catalog above), since some settings drive non-admin pages'
+// own UI (e.g. procurement_admin needs po_require_pr_reference on the PO screen).
+router.get('/settings/:key', authenticate, asyncHandler(async (req, res) => {
+  const [rows] = await pool.query('SELECT setting_value FROM system_settings WHERE setting_key = ?', [req.params.key]);
+  res.json({ success: true, data: { key: req.params.key, value: rows.length > 0 ? rows[0].setting_value : null } });
+}));
+
 // PUT /api/system/settings — Update a setting
 router.put('/settings', authenticate, requireRole('system_admin'), asyncHandler(async (req, res) => {
   const { key, value } = req.body;
@@ -52,6 +60,30 @@ router.get('/usage', authenticate, requireRole('system_admin', 'mdm_admin'), asy
       dbSizeMB: dbSize || 0,
     },
   });
+}));
+
+// GET /api/system/field-config — All field mandatory/optional settings (admin UI)
+router.get('/field-config', authenticate, requireRole('system_admin'), asyncHandler(async (req, res) => {
+  const [rows] = await pool.query('SELECT * FROM field_requirements ORDER BY module_key, display_order');
+  res.json({ success: true, data: rows });
+}));
+
+// GET /api/system/field-config/:module — { field_key: is_mandatory } map for one module, used by forms at render time
+router.get('/field-config/:module', authenticate, asyncHandler(async (req, res) => {
+  const [rows] = await pool.query('SELECT field_key, is_mandatory FROM field_requirements WHERE module_key = ?', [req.params.module]);
+  const map = {};
+  rows.forEach(r => { map[r.field_key] = !!r.is_mandatory; });
+  res.json({ success: true, data: map });
+}));
+
+// PUT /api/system/field-config/:id — Toggle a single field's mandatory flag
+router.put('/field-config/:id', authenticate, requireRole('system_admin'), asyncHandler(async (req, res) => {
+  const { is_mandatory } = req.body;
+  if (typeof is_mandatory !== 'boolean') throw new ValidationError('Missing required field', ['is_mandatory']);
+
+  await pool.query('UPDATE field_requirements SET is_mandatory = ? WHERE id = ?', [is_mandatory, req.params.id]);
+  const [rows] = await pool.query('SELECT * FROM field_requirements WHERE id = ?', [req.params.id]);
+  res.json({ success: true, data: rows[0] });
 }));
 
 module.exports = router;

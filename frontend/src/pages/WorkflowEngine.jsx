@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, InputNumber, Tag, Space, Tabs, Popconfirm, Typography, Modal, Drawer, Timeline, message, Row, Col, Divider } from 'antd';
+import { Table, Button, Form, Input, InputNumber, Tag, Space, Tabs, Popconfirm, Typography, Drawer, Timeline, message, Row, Col, Divider } from 'antd';
 import { PlusOutlined, DeleteOutlined, PlusCircleOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import api from '../api/axios';
 
@@ -103,7 +103,12 @@ function WorkflowDefinitions() {
         }}
       />
 
-      <Modal title="New Workflow" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={handleSave} okText="Create" width={700} destroyOnClose>
+      <Drawer title="New Workflow" open={modalOpen} onClose={() => setModalOpen(false)} width={700} destroyOnClose footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setModalOpen(false)}>Cancel</Button>
+          <Button type="primary" onClick={handleSave}>Create</Button>
+        </Space>
+      }>
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
@@ -134,7 +139,7 @@ function WorkflowDefinitions() {
           </Row>
         ))}
         <Button type="dashed" icon={<PlusCircleOutlined />} onClick={addStep} block>Add Step</Button>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, Select, Tag, Space, Row, Col, Card, Modal, Typography, Divider, message } from 'antd';
+import { Table, Button, Form, Input, Select, Tag, Space, Row, Col, Card, Drawer, Typography, Divider, message } from 'antd';
 import { PlusOutlined, ArrowLeftOutlined, SendOutlined, SwapOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -32,6 +33,8 @@ export default function Tickets() {
   const [reassigning, setReassigning] = useState(false);
   const [closeModal, setCloseModal] = useState(false);
   const [closeForm] = Form.useForm();
+  const { isRequired } = useFieldConfig('ticket');
+  const { isRequired: isCloseFieldRequired } = useFieldConfig('ticket_close');
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
   const isAdmin = user.role !== 'vendor';
@@ -260,25 +263,30 @@ export default function Tickets() {
           <Button danger onClick={openCloseModal}>Close Ticket</Button>
         )}
 
-        {/* Close Ticket Modal */}
-        <Modal title="Close Ticket" open={closeModal} onCancel={() => setCloseModal(false)} onOk={handleCloseTicket} okText="Close Ticket">
+        {/* Close Ticket Drawer */}
+        <Drawer title="Close Ticket" open={closeModal} onClose={() => setCloseModal(false)} width={480} footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setCloseModal(false)}>Cancel</Button>
+            <Button type="primary" onClick={handleCloseTicket}>Close Ticket</Button>
+          </Space>
+        }>
           <Form form={closeForm} layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item name="rating" label="Rating (1-5)" rules={[{ required: true, type: 'number', min: 1, max: 5 }]}>
+            <Form.Item name="rating" label="Rating (1-5)" rules={[{ required: isCloseFieldRequired('rating', true), type: 'number', min: 1, max: 5, message: 'Rating is required' }]}>
               <Select placeholder="Select rating">
                 {[1, 2, 3, 4, 5].map(n => <Select.Option key={n} value={n}>{n}</Select.Option>)}
               </Select>
             </Form.Item>
-            <Form.Item name="closure_remarks" label="Closure Remarks" rules={[{ required: true }]}>
+            <Form.Item name="closure_remarks" label="Closure Remarks" rules={[{ required: isCloseFieldRequired('closure_remarks', true), message: 'Closure Remarks is required' }]}>
               <TextArea rows={3} placeholder="Describe how the issue was resolved" />
             </Form.Item>
-            <Form.Item name="root_cause" label="Root Cause">
+            <Form.Item name="root_cause" label="Root Cause" rules={[{ required: isCloseFieldRequired('root_cause', false), message: 'Root Cause is required' }]}>
               <TextArea rows={2} placeholder="What was the underlying cause?" />
             </Form.Item>
-            <Form.Item name="resolution_type" label="Resolution Type">
+            <Form.Item name="resolution_type" label="Resolution Type" rules={[{ required: isCloseFieldRequired('resolution_type', false), message: 'Resolution Type is required' }]}>
               <Input placeholder="e.g. Replaced, Refunded, Process Fix" />
             </Form.Item>
           </Form>
-        </Modal>
+        </Drawer>
       </div>
     );
   }
@@ -295,16 +303,21 @@ export default function Tickets() {
       </div>
       <Table columns={columns} dataSource={tickets} rowKey="id" loading={loading} size="middle" />
 
-      {/* Create Modal */}
-      <Modal title="Create Ticket" open={createModal} onCancel={() => setCreateModal(false)} onOk={handleCreate} okText="Create" width={600}>
+      {/* Create Drawer */}
+      <Drawer title="Create Ticket" open={createModal} onClose={() => setCreateModal(false)} width={600} footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setCreateModal(false)}>Cancel</Button>
+          <Button type="primary" onClick={handleCreate}>Create</Button>
+        </Space>
+      }>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="subject" label="Subject" rules={[{ required: true }]}>
+          <Form.Item name="subject" label="Subject" rules={[{ required: isRequired('subject', true), message: 'Subject is required' }]}>
             <Input placeholder="Ticket subject" />
           </Form.Item>
-          <Form.Item name="description" label="Description" rules={[{ required: true }]}>
+          <Form.Item name="description" label="Description" rules={[{ required: isRequired('description', true), message: 'Description is required' }]}>
             <TextArea rows={3} placeholder="Describe the issue" />
           </Form.Item>
-          <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
+          <Form.Item name="priority" label="Priority" rules={[{ required: isRequired('priority', true), message: 'Priority is required' }]}>
             <Select placeholder="Select priority">
               <Select.Option value="low">Low</Select.Option>
               <Select.Option value="medium">Medium</Select.Option>
@@ -312,21 +325,21 @@ export default function Tickets() {
               <Select.Option value="critical">Critical</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="vendor_ids" label="Vendors" rules={[{ required: true, message: 'Please select at least one vendor' }]}>
+          <Form.Item name="vendor_ids" label="Vendors" rules={[{ required: isRequired('vendor_ids', true), message: 'Please select at least one vendor' }]}>
             <Select mode="multiple" placeholder="Select vendors" allowClear>
               {vendors.map(v => <Select.Option key={v.id} value={v.id}>{v.vendor_name}</Select.Option>)}
             </Select>
           </Form.Item>
-          <Form.Item name="category" label="Category">
+          <Form.Item name="category" label="Category" rules={[{ required: isRequired('category', false), message: 'Category is required' }]}>
             <Select placeholder="Select category" allowClear>
               {ticketCategories.map(c => <Select.Option key={c.id || c.name} value={c.name}>{c.name}</Select.Option>)}
             </Select>
           </Form.Item>
-          <Form.Item name="sla_hours" label="SLA (hours)">
+          <Form.Item name="sla_hours" label="SLA (hours)" rules={[{ required: isRequired('sla_hours', false), message: 'SLA (hours) is required' }]}>
             <Input type="number" min={1} placeholder="e.g. 48" />
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

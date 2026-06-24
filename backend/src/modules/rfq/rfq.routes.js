@@ -4,13 +4,23 @@ const { pool } = require('../../config/database');
 const { asyncHandler } = require('../../common/middleware');
 const { ValidationError, NotFoundError } = require('../../common/errors');
 const { authenticate, requireRole } = require('../auth/auth.middleware');
+const { recordMapping, getMappedQuantity, consumeBudget } = require('../pr/pr.helpers');
 
 const router = express.Router();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async function getRfqOrThrow(id, conn) {
-  const [rows] = await (conn || pool).query('SELECT * FROM rfqs WHERE id = ?', [id]);
+  // Pulls a small, vendor-safe subset of the source PR's header (department,
+  // priority, required date, justification) so the RFQ Overview tab can show
+  // "enough information captured as part of the PR" without exposing
+  // internal-only fields like cost center or budget.
+  const [rows] = await (conn || pool).query(
+    `SELECT r.*, pr.pr_number, pr.department as pr_department, pr.priority as pr_priority,
+       pr.required_date as pr_required_date, pr.justification as pr_justification
+     FROM rfqs r LEFT JOIN purchase_requisitions pr ON r.pr_id = pr.id WHERE r.id = ?`,
+    [id]
+  );
   if (rows.length === 0) throw new NotFoundError('RFQ not found');
   return rows[0];
 }
@@ -40,19 +50,21 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
     // Deliberately excludes vendor_count / bid_count — a vendor must not learn how many
     // other suppliers were invited to or bid on the same RFQ.
     sql = `
-      SELECT r.*, rv.participation_status,
+      SELECT r.*, rv.participation_status, pr.pr_number,
         (SELECT COUNT(*) FROM rfq_line_items WHERE rfq_id = r.id) as item_count
       FROM rfqs r
       INNER JOIN rfq_vendors rv ON r.id = rv.rfq_id AND rv.vendor_id = ?
+      LEFT JOIN purchase_requisitions pr ON r.pr_id = pr.id
       ORDER BY r.created_at DESC`;
     params.push(req.user.vendorId);
   } else {
     sql = `
-      SELECT r.*,
+      SELECT r.*, pr.pr_number,
         (SELECT COUNT(*) FROM rfq_vendors WHERE rfq_id = r.id) as vendor_count,
         (SELECT COUNT(*) FROM rfq_line_items WHERE rfq_id = r.id) as item_count,
         (SELECT COUNT(*) FROM vendor_bids WHERE rfq_id = r.id) as bid_count
       FROM rfqs r
+      LEFT JOIN purchase_requisitions pr ON r.pr_id = pr.id
       ORDER BY r.created_at DESC`;
   }
 
@@ -156,6 +168,99 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
       ...(req.user.role === 'vendor' ? { my_bid: myBid } : { vendors, bids: allBids }),
     },
   });
+}));
+
+// ─── Edit RFQ (header, vendors, line items) — allowed at any status ────────
+// Unlike PR, which only allows editing while still draft/rejected, an RFQ can
+// be edited by procurement at any point in its lifecycle. Line items are
+// updated in place by id (not delete+recreate) so existing vendor bids and
+// document_flow_mapping rows that reference a line's id stay valid. A line
+// can only be removed, and a line's quantity can only be reduced, if doing so
+// wouldn't invalidate a bid or an award that already exists against it.
+
+router.put('/:id', authenticate, requireRole('mdm_admin', 'procurement_admin'), asyncHandler(async (req, res) => {
+  const rfq = await getRfqOrThrow(req.params.id);
+  const { title, description, submission_deadline, rfq_type, procurement_category_id, budget_value, vendor_ids, line_items } = req.body;
+
+  const missing = [];
+  if (!title) missing.push('title');
+  if (!submission_deadline) missing.push('submission_deadline');
+  if (!vendor_ids || !Array.isArray(vendor_ids) || vendor_ids.length === 0) missing.push('vendor_ids');
+  if (!line_items || !Array.isArray(line_items) || line_items.length === 0) missing.push('line_items');
+  if (missing.length > 0) throw new ValidationError('Missing required fields', missing);
+
+  await pool.query(
+    `UPDATE rfqs SET title = ?, description = ?, submission_deadline = ?, rfq_type = ?, procurement_category_id = ?, budget_value = ? WHERE id = ?`,
+    [title, description || null, new Date(submission_deadline), rfq_type || 'Limited', procurement_category_id || null, budget_value || null, rfq.id]
+  );
+
+  // Vendors — add/remove invitees to match the new list. Removing an invite
+  // never touches that vendor's existing bid (vendor_bids has no FK back to
+  // rfq_vendors), so a bid already on file is preserved even if un-invited.
+  const [existingVendorRows] = await pool.query('SELECT vendor_id FROM rfq_vendors WHERE rfq_id = ?', [rfq.id]);
+  const existingVendorIds = existingVendorRows.map(v => v.vendor_id);
+  for (const vendorId of vendor_ids) {
+    if (!existingVendorIds.includes(vendorId)) {
+      await pool.query('INSERT INTO rfq_vendors (id, rfq_id, vendor_id) VALUES (?, ?, ?)', [uuidv4(), rfq.id, vendorId]);
+    }
+  }
+  for (const vendorId of existingVendorIds) {
+    if (!vendor_ids.includes(vendorId)) {
+      await pool.query('DELETE FROM rfq_vendors WHERE rfq_id = ? AND vendor_id = ?', [rfq.id, vendorId]);
+    }
+  }
+
+  // Line items
+  const [existingLines] = await pool.query('SELECT * FROM rfq_line_items WHERE rfq_id = ?', [rfq.id]);
+  const payloadIds = new Set(line_items.filter(li => li.id).map(li => li.id));
+
+  for (const existing of existingLines) {
+    if (!payloadIds.has(existing.id)) {
+      const [[{ cnt: bidCount }]] = await pool.query('SELECT COUNT(*) as cnt FROM vendor_bid_items WHERE rfq_line_item_id = ?', [existing.id]);
+      const awarded = await getMappedQuantity('RFQ', existing.id);
+      if (bidCount > 0 || awarded > 0) {
+        throw new ValidationError(`Cannot remove "${existing.item_description}" — it already has a vendor bid or has been awarded`);
+      }
+      await pool.query('DELETE FROM rfq_line_items WHERE id = ?', [existing.id]);
+    }
+  }
+
+  for (let i = 0; i < line_items.length; i++) {
+    const item = line_items[i];
+    if (!item.item_description || !item.quantity) throw new ValidationError(`Line item ${i + 1} missing description or quantity`);
+    const techSpecs = item.technical_specifications ? JSON.stringify(item.technical_specifications) : null;
+
+    if (item.id) {
+      if (!existingLines.some(l => l.id === item.id)) throw new ValidationError(`Line item ${item.id} does not belong to this RFQ`);
+      const awarded = await getMappedQuantity('RFQ', item.id);
+      if (Number(item.quantity) < awarded) {
+        throw new ValidationError(`Quantity for "${item.item_description}" cannot be reduced below what's already been awarded (${awarded})`);
+      }
+      await pool.query(
+        `UPDATE rfq_line_items SET
+           item_master_id = ?, item_description = ?, quantity = ?, uom = ?, target_price = ?, sequence = ?,
+           technical_specifications = ?, delivery_location_id = ?, required_delivery_date = ?, remarks = ?, attachment_path = ?, attachment_name = ?
+         WHERE id = ?`,
+        [
+          item.item_master_id || null, item.item_description, item.quantity, item.uom || 'Nos', item.target_price || null, i + 1,
+          techSpecs, item.delivery_location_id || null, item.required_delivery_date || null, item.remarks || null,
+          item.attachment_path || null, item.attachment_name || null, item.id,
+        ]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO rfq_line_items
+          (id, rfq_id, item_master_id, item_description, quantity, uom, target_price, sequence, remarks, attachment_path, attachment_name, technical_specifications, delivery_location_id, required_delivery_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuidv4(), rfq.id, item.item_master_id || null, item.item_description, item.quantity, item.uom || 'Nos', item.target_price || null, i + 1,
+          item.remarks || null, item.attachment_path || null, item.attachment_name || null, techSpecs, item.delivery_location_id || null, item.required_delivery_date || null,
+        ]
+      );
+    }
+  }
+
+  res.json({ success: true, message: 'RFQ updated' });
 }));
 
 // ─── Publish RFQ ────────────────────────────────────────────────────────────
@@ -285,7 +390,7 @@ router.post('/:id/bids', authenticate, asyncHandler(async (req, res) => {
   const [assigned] = await pool.query('SELECT id FROM rfq_vendors WHERE rfq_id = ? AND vendor_id = ?', [rfq.id, req.user.vendorId]);
   if (assigned.length === 0) throw new ValidationError('You are not invited to this RFQ');
 
-  const { bid_items, remarks, taxes_included_flag, offered_payment_terms, warranty_period, deviation_flag, tco_value } = req.body;
+  const { bid_items, remarks, taxes_included_flag, offered_payment_terms, warranty_period, deviation_flag, tco_value, overall_attachment_path, overall_attachment_name } = req.body;
   if (!bid_items || !Array.isArray(bid_items) || bid_items.length === 0) throw new ValidationError('bid_items are required');
 
   // Check for existing bid
@@ -311,17 +416,18 @@ router.post('/:id/bids', authenticate, asyncHandler(async (req, res) => {
     await pool.query(
       `UPDATE vendor_bids
        SET total_value = ?, remarks = ?, status = 'revised', updated_at = NOW(),
-           taxes_included_flag = ?, offered_payment_terms = ?, warranty_period = ?, deviation_flag = ?, tco_value = ?
+           taxes_included_flag = ?, offered_payment_terms = ?, warranty_period = ?, deviation_flag = ?, tco_value = ?,
+           overall_attachment_path = ?, overall_attachment_name = ?
        WHERE id = ?`,
-      [totalValue, remarks || null, taxes_included_flag ?? false, offered_payment_terms || null, warranty_period || null, deviation_flag ?? false, tcoValue, bidId]
+      [totalValue, remarks || null, taxes_included_flag ?? false, offered_payment_terms || null, warranty_period || null, deviation_flag ?? false, tcoValue, overall_attachment_path || null, overall_attachment_name || null, bidId]
     );
     await pool.query('DELETE FROM vendor_bid_items WHERE bid_id = ?', [bidId]);
   } else {
     bidId = uuidv4();
     await pool.query(
-      `INSERT INTO vendor_bids (id, rfq_id, vendor_id, total_value, remarks, taxes_included_flag, offered_payment_terms, warranty_period, deviation_flag, tco_value)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [bidId, rfq.id, req.user.vendorId, totalValue, remarks || null, taxes_included_flag ?? false, offered_payment_terms || null, warranty_period || null, deviation_flag ?? false, tcoValue]
+      `INSERT INTO vendor_bids (id, rfq_id, vendor_id, total_value, remarks, taxes_included_flag, offered_payment_terms, warranty_period, deviation_flag, tco_value, overall_attachment_path, overall_attachment_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [bidId, rfq.id, req.user.vendorId, totalValue, remarks || null, taxes_included_flag ?? false, offered_payment_terms || null, warranty_period || null, deviation_flag ?? false, tcoValue, overall_attachment_path || null, overall_attachment_name || null]
     );
     await pool.query(
       "UPDATE rfq_vendors SET participation_status = 'submitted' WHERE rfq_id = ? AND vendor_id = ?",
@@ -363,11 +469,32 @@ router.post('/:id/award', authenticate, requireRole('mdm_admin', 'procurement_ad
     if (!ai.vendor_id || ai.unit_price == null || !ai.quantity) throw new ValidationError('Each award item needs vendor_id, unit_price, and quantity');
   }
 
+  // A single RFQ line can be split across several award_items (one per
+  // vendor) — cap the *total* awarded across all of them at the line's own
+  // quantity, on top of whatever was already awarded in a prior partial award.
+  const requestedByLine = {};
+  for (const ai of award_items) {
+    requestedByLine[ai.rfq_line_item_id] = (requestedByLine[ai.rfq_line_item_id] || 0) + Number(ai.quantity);
+  }
+  for (const [lineId, requestedQty] of Object.entries(requestedByLine)) {
+    const line = rfqItemMap[lineId];
+    const remaining = Number(line.quantity) - (await getMappedQuantity('RFQ', lineId));
+    if (requestedQty > remaining) {
+      throw new ValidationError(`Award quantity for "${line.item_description}" (${requestedQty}) exceeds the remaining awardable quantity (${remaining})`);
+    }
+  }
+
   // Group award items by vendor
   const byVendor = {};
   for (const ai of award_items) {
     if (!byVendor[ai.vendor_id]) byVendor[ai.vendor_id] = [];
     byVendor[ai.vendor_id].push(ai);
+  }
+
+  let sourcePr = null;
+  if (rfq.pr_id) {
+    const [[pr]] = await pool.query('SELECT * FROM purchase_requisitions WHERE id = ?', [rfq.pr_id]);
+    sourcePr = pr || null;
   }
 
   const generatedPOs = [];
@@ -378,17 +505,24 @@ router.post('/:id/award', authenticate, requireRole('mdm_admin', 'procurement_ad
     const poNumber = await autoPONumber();
 
     await pool.query(
-      'INSERT INTO purchase_orders (id, po_number, vendor_id, total_amount) VALUES (?, ?, ?, ?)',
-      [poId, poNumber, vendorId, totalAmount]
+      `INSERT INTO purchase_orders (id, po_number, vendor_id, total_amount, pr_id, rfq_id, department, account_assignment_category, company_code, plant, requester_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        poId, poNumber, vendorId, totalAmount, rfq.pr_id || null, rfq.id,
+        sourcePr?.department || null, sourcePr?.account_assignment_category || null,
+        sourcePr?.company_code || null, sourcePr?.plant || null, sourcePr?.requester_id || null,
+      ]
     );
+    if (sourcePr?.cost_center) await consumeBudget(sourcePr.cost_center, totalAmount);
 
     for (let i = 0; i < items.length; i++) {
       const ai = items[i];
       const rfqItem = rfqItemMap[ai.rfq_line_item_id];
       const lineAmount = Number(ai.unit_price) * Number(ai.quantity);
+      const poLineId = uuidv4();
       await pool.query(
-        'INSERT INTO po_line_items (id, po_id, line_number, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [uuidv4(), poId, i + 1, rfqItem.item_description, ai.quantity, ai.unit_price, lineAmount]
+        'INSERT INTO po_line_items (id, po_id, line_number, description, quantity, unit_price, amount, pr_line_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [poLineId, poId, i + 1, rfqItem.item_description, ai.quantity, ai.unit_price, lineAmount, rfqItem.pr_line_item_id || null]
       );
 
       // Record price history for benchmarking
@@ -396,6 +530,10 @@ router.post('/:id/award', authenticate, requireRole('mdm_admin', 'procurement_ad
         'INSERT INTO price_history (id, item_description, vendor_id, po_id, unit_price, quantity) VALUES (?, ?, ?, ?, ?, ?)',
         [uuidv4(), rfqItem.item_description, vendorId, poId, ai.unit_price, ai.quantity]
       );
+
+      // RFQ→PO mapping — the PR-level pool was already reserved when this
+      // RFQ line was created, so awarding only consumes the RFQ's own pool.
+      await recordMapping('RFQ', rfqItem.id, 'PO', poLineId, ai.quantity, req.user.id);
     }
 
     generatedPOs.push({ po_id: poId, po_number: poNumber, vendor_id: vendorId });
@@ -404,6 +542,29 @@ router.post('/:id/award', authenticate, requireRole('mdm_admin', 'procurement_ad
   await pool.query("UPDATE rfqs SET status = 'awarded' WHERE id = ?", [rfq.id]);
 
   res.json({ success: true, data: { rfq_id: rfq.id, purchase_orders: generatedPOs } });
+}));
+
+// ─── Allocation — per-line awarded/remaining qty ───────────────────────────
+
+router.get('/:id/allocation', authenticate, requireRole('mdm_admin', 'procurement_admin'), asyncHandler(async (req, res) => {
+  const rfq = await getRfqOrThrow(req.params.id);
+  const [lineItems] = await pool.query('SELECT * FROM rfq_line_items WHERE rfq_id = ? ORDER BY sequence', [rfq.id]);
+
+  const lines = [];
+  for (const li of lineItems) {
+    const awarded = await getMappedQuantity('RFQ', li.id);
+    lines.push({
+      rfq_line_item_id: li.id,
+      item_description: li.item_description,
+      uom: li.uom,
+      target_price: li.target_price != null ? Number(li.target_price) : null,
+      quantity: Number(li.quantity),
+      awarded_quantity: awarded,
+      remaining_to_award: Number(li.quantity) - awarded,
+    });
+  }
+
+  res.json({ success: true, data: { rfq_id: rfq.id, rfq_number: rfq.rfq_number, lines } });
 }));
 
 module.exports = router;

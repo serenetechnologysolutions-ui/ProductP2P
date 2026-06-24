@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Tabs, Popconfirm, Typography, Divider, Statistic, Avatar, Modal, Checkbox, Upload, Alert, message } from 'antd';
+import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Tabs, Popconfirm, Typography, Divider, Statistic, Avatar, Drawer, Checkbox, Upload, Alert, message } from 'antd';
 import { PlusOutlined, ArrowLeftOutlined, EditOutlined, SearchOutlined, ClearOutlined, SaveOutlined, CheckOutlined, CloseOutlined, StopOutlined, DeleteOutlined, PlusCircleOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR = { draft: 'default', submitted: 'blue', under_review: 'orange', approved: 'green', rejected: 'red', inactive: '#8c8c8c' };
 const LIFECYCLE_COLOR = { onboarding: 'blue', active: 'green', dormant: 'gold', blocked: '#8c8c8c' };
 const RISK_COLOR = { low: 'green', medium: 'orange', high: 'red' };
-const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
 
 function parseMaybeJson(value) {
   if (!value) return null;
@@ -34,6 +34,7 @@ export default function Vendors() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [complianceDates, setComplianceDates] = useState([]);
+  const { isRequired } = useFieldConfig('vendor');
 
   const fetchData = useCallback(async (page = 1, pageSize = 10) => {
     setLoading(true);
@@ -51,7 +52,7 @@ export default function Vendors() {
   useEffect(() => {
     (async () => {
       try {
-        const cats = ['company', 'department', 'supplier_group', 'supplier_category', 'state', 'city', 'country', 'vendor_type', 'industry', 'registration_type', 'payment_terms'];
+        const cats = ['company', 'department', 'supplier_group', 'supplier_category', 'state', 'city', 'country', 'vendor_type', 'industry', 'registration_type', 'payment_terms', 'msme_type', 'currency'];
         const results = {};
         for (const cat of cats) { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; }
         setSubMasters(results);
@@ -195,7 +196,7 @@ export default function Vendors() {
           pagination={{ ...pagination, showSizeChanger: true, showTotal: t => `${t} vendors`, onChange: (p, ps) => fetchData(p, ps) }}
           onRow={(record) => ({ onClick: () => openDetail(record), style: { cursor: 'pointer' } })} />
 
-        <Modal title="Import Vendors from Excel" open={importModalOpen} onCancel={closeImportModal} footer={null} destroyOnClose>
+        <Drawer title="Import Vendors from Excel" open={importModalOpen} onClose={closeImportModal} width={480} destroyOnClose>
           <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
             File must have a header row with columns: Vendor Name, Email, Phone, Company Name, Department, Supplier Group, Supplier Category, Supplier Location.
           </Text>
@@ -231,7 +232,7 @@ export default function Vendors() {
               <Button type="primary" icon={<UploadOutlined />} loading={importing} onClick={handleImport}>Upload &amp; Import</Button>
             </Space>
           </div>
-        </Modal>
+        </Drawer>
       </div>
     );
   }
@@ -340,9 +341,14 @@ export default function Vendors() {
             </Row>
           )},
         ]} />
-        <Modal title="Reject Vendor" open={rejectModalOpen} onCancel={() => setRejectModalOpen(false)} onOk={() => handleAction('reject')} okText="Reject" okButtonProps={{ danger: true }}>
+        <Drawer title="Reject Vendor" open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} width={420} footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setRejectModalOpen(false)}>Cancel</Button>
+            <Button type="primary" danger onClick={() => handleAction('reject')}>Reject</Button>
+          </Space>
+        }>
           <Input.TextArea rows={3} placeholder="Enter rejection reason (mandatory)" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-        </Modal>
+        </Drawer>
       </div>
     );
   }
@@ -360,63 +366,63 @@ export default function Vendors() {
           <Form form={form} layout="vertical">
             <Title level={5}>Core Information</Title>
             <Row gutter={16}>
-              <Col span={8}><Form.Item name="vendor_name" label={<span>Vendor Name<span className="form-label-desc">Company or individual</span></span>} rules={[{ required: true }]}><Input size="large" /></Form.Item></Col>
+              <Col span={8}><Form.Item name="vendor_name" label={<span>Vendor Name<span className="form-label-desc">Company or individual</span></span>} rules={[{ required: isRequired('vendor_name', true), message: 'Vendor Name is required' }]}><Input size="large" /></Form.Item></Col>
               <Col span={8}><Form.Item label="Email (read-only)"><Input disabled value={selected.email} /></Form.Item></Col>
-              <Col span={8}><Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item></Col>
+              <Col span={8}><Form.Item name="phone" label="Phone" rules={[{ required: isRequired('phone', true), message: 'Phone is required' }]}><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.company || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="department" label="Department" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.department || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="supplier_category" label="Category" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_category || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: isRequired('company_name', true), message: 'Company is required' }]}><Select showSearch placeholder="Select" options={(subMasters.company || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="department" label="Department" rules={[{ required: isRequired('department', true), message: 'Department is required' }]}><Select showSearch placeholder="Select" options={(subMasters.department || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: isRequired('supplier_group', true), message: 'Supplier Group is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="supplier_category" label="Category" rules={[{ required: isRequired('supplier_category', true), message: 'Category is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_category || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={8}><Form.Item name="supplier_location" label="Location" rules={[{ required: true }]}><Input /></Form.Item></Col>
+              <Col span={8}><Form.Item name="supplier_location" label="Location" rules={[{ required: isRequired('supplier_location', true), message: 'Location is required' }]}><Input /></Form.Item></Col>
             </Row>
 
             <Divider />
             <Title level={5}>Business Information</Title>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="gst_number" label="GST Number"><Input maxLength={15} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="pan_number" label="PAN Number"><Input maxLength={10} style={{ textTransform: 'uppercase' }} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="trade_name" label="Trade Name"><Input /></Form.Item></Col>
-              <Col span={6}><Form.Item name="legal_name" label="Legal Name"><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="gst_number" label="GST Number" rules={[{ required: isRequired('gst_number', false), message: 'GST Number is required' }]}><Input maxLength={15} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="pan_number" label="PAN Number" rules={[{ required: isRequired('pan_number', false), message: 'PAN Number is required' }]}><Input maxLength={10} style={{ textTransform: 'uppercase' }} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="trade_name" label="Trade Name" rules={[{ required: isRequired('trade_name', false), message: 'Trade Name is required' }]}><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="legal_name" label="Legal Name" rules={[{ required: isRequired('legal_name', false), message: 'Legal Name is required' }]}><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="msme_type" label="MSME Type"><Select placeholder="Select" options={[{ value: 'micro' }, { value: 'small' }, { value: 'medium' }]} allowClear /></Form.Item></Col>
-              <Col span={6}><Form.Item name="itr_filing_status" label="ITR Filing"><Select placeholder="Select" options={[{ value: 'filed' }, { value: 'not_filed' }]} allowClear /></Form.Item></Col>
-              <Col span={6}><Form.Item name="phone1" label="Phone 1"><Input /></Form.Item></Col>
-              <Col span={6}><Form.Item name="phone2" label="Phone 2"><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="msme_type" label="MSME Type" rules={[{ required: isRequired('msme_type', false), message: 'MSME Type is required' }]}><Select placeholder="Select" options={(subMasters.msme_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="itr_filing_status" label="ITR Filing" rules={[{ required: isRequired('itr_filing_status', false), message: 'ITR Filing Status is required' }]}><Select placeholder="Select" options={[{ value: 'filed' }, { value: 'not_filed' }]} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="phone1" label="Phone 1" rules={[{ required: isRequired('phone1', false), message: 'Phone 1 is required' }]}><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="phone2" label="Phone 2" rules={[{ required: isRequired('phone2', false), message: 'Phone 2 is required' }]}><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="email1" label="Email 1"><Input /></Form.Item></Col>
-              <Col span={6}><Form.Item name="email2" label="Email 2"><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="email1" label="Email 1" rules={[{ required: isRequired('email1', false), message: 'Email 1 is required' }]}><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="email2" label="Email 2" rules={[{ required: isRequired('email2', false), message: 'Email 2 is required' }]}><Input /></Form.Item></Col>
             </Row>
 
             <Divider />
             <Title level={5}>Classification &amp; Governance</Title>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="vendor_code" label={<span>Vendor Code<span className="form-label-desc">ERP-friendly, manual entry</span></span>}><Input placeholder="e.g. ERP-VND-001" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="vendor_code" label={<span>Vendor Code<span className="form-label-desc">ERP-friendly, manual entry</span></span>} rules={[{ required: isRequired('vendor_code', false), message: 'Vendor Code is required' }]}><Input placeholder="e.g. ERP-VND-001" /></Form.Item></Col>
               <Col span={6}><Form.Item label="Vendor Code (Auto)"><Input disabled value={selected.vendor_code_auto} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="vendor_type" label="Vendor Type"><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-              <Col span={6}><Form.Item name="industry" label="Industry"><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="vendor_type" label="Vendor Type" rules={[{ required: isRequired('vendor_type', false), message: 'Vendor Type is required' }]}><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="industry" label="Industry" rules={[{ required: isRequired('industry', false), message: 'Industry is required' }]}><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="registration_type" label="Registration Type"><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-              <Col span={6}><Form.Item name="payment_terms_id" label="Payment Terms"><Select showSearch placeholder="Select" options={(subMasters.payment_terms || []).map(s => ({ value: s.id, label: s.name }))} allowClear /></Form.Item></Col>
-              <Col span={6}><Form.Item name="currency_code" label="Currency"><Select options={CURRENCY_OPTIONS} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="account_manager_name" label="Account Manager"><Input /></Form.Item></Col>
+              <Col span={6}><Form.Item name="registration_type" label="Registration Type" rules={[{ required: isRequired('registration_type', false), message: 'Registration Type is required' }]}><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="payment_terms_id" label="Payment Terms" rules={[{ required: isRequired('payment_terms_id', false), message: 'Payment Terms is required' }]}><Select showSearch placeholder="Select" options={(subMasters.payment_terms || []).map(s => ({ value: s.id, label: s.name }))} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="currency_code" label="Currency" rules={[{ required: isRequired('currency_code', false), message: 'Currency is required' }]}><Select options={(subMasters.currency || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="account_manager_name" label="Account Manager" rules={[{ required: isRequired('account_manager_name', false), message: 'Account Manager is required' }]}><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="credit_rating" label={<span>Credit Rating<span className="form-label-desc">e.g. AA+, BB</span></span>}><Input maxLength={10} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="credit_limit" label="Credit Limit"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="risk_category" label="Risk Category"><Select placeholder="Select" options={[{ value: 'low' }, { value: 'medium' }, { value: 'high' }]} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="credit_rating" label={<span>Credit Rating<span className="form-label-desc">e.g. AA+, BB</span></span>} rules={[{ required: isRequired('credit_rating', false), message: 'Credit Rating is required' }]}><Input maxLength={10} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="credit_limit" label="Credit Limit" rules={[{ required: isRequired('credit_limit', false), message: 'Credit Limit is required' }]}><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="risk_category" label="Risk Category" rules={[{ required: isRequired('risk_category', false), message: 'Risk Category is required' }]}><Select placeholder="Select" options={[{ value: 'low' }, { value: 'medium' }, { value: 'high' }]} allowClear /></Form.Item></Col>
               <Col span={6}><Form.Item name="preferred_vendor_flag" label=" " valuePropName="checked"><Checkbox>Preferred Vendor</Checkbox></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="geo_longitude" label="Geo Longitude"><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
-              <Col span={12}><Form.Item name="serviceable_regions" label="Serviceable Regions"><Select mode="tags" placeholder="Type a region and press enter" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude" rules={[{ required: isRequired('geo_latitude', false), message: 'Geo Latitude is required' }]}><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="geo_longitude" label="Geo Longitude" rules={[{ required: isRequired('geo_longitude', false), message: 'Geo Longitude is required' }]}><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
+              <Col span={12}><Form.Item name="serviceable_regions" label="Serviceable Regions" rules={[{ required: isRequired('serviceable_regions', false), message: 'Serviceable Regions is required' }]}><Select mode="tags" placeholder="Type a region and press enter" /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
               <Col span={6}><Form.Item name="blacklist_flag" label=" " valuePropName="checked"><Checkbox>Blacklisted</Checkbox></Form.Item></Col>
@@ -496,31 +502,31 @@ export default function Vendors() {
         <Form form={form} layout="vertical">
           <Title level={5}>Basic Information</Title>
           <Row gutter={16}>
-            <Col span={8}><Form.Item name="vendor_name" label={<span>Vendor Name<span className="form-label-desc">Company or individual</span></span>} rules={[{ required: true }]}><Input size="large" placeholder="Vendor name" /></Form.Item></Col>
-            <Col span={8}><Form.Item name="email" label={<span>Email<span className="form-label-desc">Login credentials sent here</span></span>} rules={[{ required: true, type: 'email' }]}><Input placeholder="email@company.com" /></Form.Item></Col>
-            <Col span={8}><Form.Item name="phone" label={<span>Phone<span className="form-label-desc">Primary contact</span></span>} rules={[{ required: true }]}><Input placeholder="+91 XXXXXXXXXX" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="vendor_name" label={<span>Vendor Name<span className="form-label-desc">Company or individual</span></span>} rules={[{ required: isRequired('vendor_name', true), message: 'Vendor Name is required' }]}><Input size="large" placeholder="Vendor name" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="email" label={<span>Email<span className="form-label-desc">Login credentials sent here</span></span>} rules={[{ required: isRequired('email', true), message: 'Email is required' }, { type: 'email', message: 'Enter a valid email' }]}><Input placeholder="email@company.com" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="phone" label={<span>Phone<span className="form-label-desc">Primary contact</span></span>} rules={[{ required: isRequired('phone', true), message: 'Phone is required' }]}><Input placeholder="+91 XXXXXXXXXX" /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.company || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="department" label="Department" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.department || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="supplier_category" label="Category" rules={[{ required: true }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_category || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: isRequired('company_name', true), message: 'Company is required' }]}><Select showSearch placeholder="Select" options={(subMasters.company || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="department" label="Department" rules={[{ required: isRequired('department', true), message: 'Department is required' }]}><Select showSearch placeholder="Select" options={(subMasters.department || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: isRequired('supplier_group', true), message: 'Supplier Group is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="supplier_category" label="Category" rules={[{ required: isRequired('supplier_category', true), message: 'Category is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_category || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
-            <Col span={8}><Form.Item name="supplier_location" label="Location" rules={[{ required: true }]}><Input placeholder="City / Location" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="supplier_location" label="Location" rules={[{ required: isRequired('supplier_location', true), message: 'Location is required' }]}><Input placeholder="City / Location" /></Form.Item></Col>
           </Row>
 
           <Divider />
           <Title level={5}>Additional Information <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>(optional — can be completed later)</Text></Title>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="vendor_code" label={<span>Vendor Code<span className="form-label-desc">ERP-friendly, manual entry</span></span>}><Input placeholder="e.g. ERP-VND-001" /></Form.Item></Col>
-            <Col span={6}><Form.Item name="vendor_type" label="Vendor Type"><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-            <Col span={6}><Form.Item name="industry" label="Industry"><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
-            <Col span={6}><Form.Item name="registration_type" label="Registration Type"><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+            <Col span={6}><Form.Item name="vendor_code" label={<span>Vendor Code<span className="form-label-desc">ERP-friendly, manual entry</span></span>} rules={[{ required: isRequired('vendor_code', false), message: 'Vendor Code is required' }]}><Input placeholder="e.g. ERP-VND-001" /></Form.Item></Col>
+            <Col span={6}><Form.Item name="vendor_type" label="Vendor Type" rules={[{ required: isRequired('vendor_type', false), message: 'Vendor Type is required' }]}><Select showSearch placeholder="Select" options={(subMasters.vendor_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+            <Col span={6}><Form.Item name="industry" label="Industry" rules={[{ required: isRequired('industry', false), message: 'Industry is required' }]}><Select showSearch placeholder="Select" options={(subMasters.industry || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
+            <Col span={6}><Form.Item name="registration_type" label="Registration Type" rules={[{ required: isRequired('registration_type', false), message: 'Registration Type is required' }]}><Select showSearch placeholder="Select" options={(subMasters.registration_type || []).map(s => ({ value: s.name, label: s.name }))} allowClear /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="currency_code" label="Currency" initialValue="INR"><Select options={CURRENCY_OPTIONS} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="account_manager_name" label="Account Manager"><Input /></Form.Item></Col>
+            <Col span={6}><Form.Item name="currency_code" label="Currency" initialValue="INR" rules={[{ required: isRequired('currency_code', false), message: 'Currency is required' }]}><Select options={(subMasters.currency || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="account_manager_name" label="Account Manager" rules={[{ required: isRequired('account_manager_name', false), message: 'Account Manager is required' }]}><Input /></Form.Item></Col>
           </Row>
 
           <Divider />

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, Select, Tag, Space, Row, Col, Card, Modal, Popconfirm, Typography, Switch, message } from 'antd';
+import { Table, Button, Form, Input, Select, Tag, Space, Row, Col, Card, Drawer, Popconfirm, Typography, Switch, message } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
 
 const { Title, Text } = Typography;
 const ROLE_COLOR = { mdm_admin: 'blue', procurement_admin: 'purple', vendor: 'green' };
@@ -16,6 +17,7 @@ export default function UserManagement() {
   const [form] = Form.useForm();
   const [filterSearch, setFilterSearch] = useState('');
   const [filterRole, setFilterRole] = useState(undefined);
+  const { isRequired } = useFieldConfig('user_management');
 
   const fetchData = async () => {
     setLoading(true);
@@ -99,22 +101,27 @@ export default function UserManagement() {
         return match;
       })} rowKey="id" loading={loading} size="middle" />
 
-      <Modal title={editing ? 'Edit User' : 'Add User'} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={handleSave} okText={editing ? 'Update' : 'Create'} width={500}>
+      <Drawer title={editing ? 'Edit User' : 'Add User'} open={modalOpen} onClose={() => setModalOpen(false)} width={500} footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setModalOpen(false)}>Cancel</Button>
+          <Button type="primary" onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button>
+        </Space>
+      }>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="full_name" label="Full Name" rules={[{ required: true }]}>
+          <Form.Item name="full_name" label="Full Name" rules={[{ required: isRequired('full_name', true), message: 'Full Name is required' }]}>
             <Input placeholder="Full name" />
           </Form.Item>
-          <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
+          <Form.Item name="email" label="Email" rules={[{ required: isRequired('email', true), message: 'Email is required' }, { type: 'email', message: 'Enter a valid email' }]}>
             <Input placeholder="email@example.com" disabled={!!editing} />
           </Form.Item>
-          <Form.Item name="role" label="Role" rules={[{ required: true }]}>
+          <Form.Item name="role" label="Role" rules={[{ required: isRequired('role', true), message: 'Role is required' }]}>
             <Select options={[
               { value: 'mdm_admin', label: 'MDM Admin' },
               { value: 'procurement_admin', label: 'Procurement Admin' },
               { value: 'vendor', label: 'Vendor' },
             ]} />
           </Form.Item>
-          <Form.Item name="password" label={editing ? 'New Password (leave blank to keep current)' : 'Password'} rules={editing ? [] : [{ required: true, min: 6 }]}>
+          <Form.Item name="password" label={editing ? 'New Password (leave blank to keep current)' : 'Password'} rules={editing ? [] : [{ required: isRequired('password', true), min: 6, message: 'Password is required (min 6 characters)' }]}>
             <Input.Password placeholder={editing ? 'Leave blank to keep current' : 'Min 6 characters'} />
           </Form.Item>
           {editing && (
@@ -123,7 +130,7 @@ export default function UserManagement() {
             </Form.Item>
           )}
         </Form>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

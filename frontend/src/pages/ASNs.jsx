@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Typography, Divider, Steps, Upload, Modal, Checkbox, message } from 'antd';
+import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Typography, Divider, Steps, Upload, Drawer, Checkbox, message } from 'antd';
 import { PlusOutlined, ArrowLeftOutlined, CheckOutlined, CloseOutlined, SendOutlined, EditOutlined, SaveOutlined, UploadOutlined, AuditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
+import { DOCUMENT_INTELLIGENCE_URL } from '../config';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR = { draft: 'default', submitted: 'blue', validated: 'orange', posted: 'green', rejected: 'red' };
 const STATUS_LABEL = { draft: 'DRAFT', submitted: 'INITIATED', validated: 'VALIDATED', posted: 'POSTED', rejected: 'REJECTED' };
-const SHIPMENT_MODE_OPTIONS = ['road', 'air', 'sea'].map(v => ({ value: v, label: v.toUpperCase() }));
-const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
 const MATCH_STATUS_COLOR = { matched: 'green', mismatched: 'red', pending: 'default' };
 
 export default function ASNs() {
@@ -30,6 +30,8 @@ export default function ASNs() {
   const [matchStatus, setMatchStatus] = useState('matched');
   const [matchDiscrepancyFlag, setMatchDiscrepancyFlag] = useState(false);
   const [matchDiscrepancyReason, setMatchDiscrepancyReason] = useState('');
+  const { isRequired } = useFieldConfig('asn');
+  const [subMasters, setSubMasters] = useState({ shipment_mode: [], currency: [] });
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
 
@@ -43,7 +45,17 @@ export default function ASNs() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+    (async () => {
+      const cats = ['shipment_mode', 'currency'];
+      const results = {};
+      for (const cat of cats) {
+        try { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; } catch { results[cat] = []; }
+      }
+      setSubMasters(results);
+    })();
+  }, []);
 
   const fetchPOs = async () => {
     try { const res = await api.get('/purchase-orders'); setPos(res.data.data || []); } catch (_) {}
@@ -245,7 +257,12 @@ export default function ASNs() {
             ]} />
           </Card>
         )}
-        <Modal title="3-Way Match — PO vs ASN vs Invoice" open={matchModalOpen} onCancel={() => setMatchModalOpen(false)} onOk={handleThreeWayMatch} okText="Save">
+        <Drawer title="3-Way Match — PO vs ASN vs Invoice" open={matchModalOpen} onClose={() => setMatchModalOpen(false)} width={480} footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setMatchModalOpen(false)}>Cancel</Button>
+            <Button type="primary" onClick={handleThreeWayMatch}>Save</Button>
+          </Space>
+        }>
           <Form layout="vertical">
             <Form.Item label="Match Status">
               <Select value={matchStatus} onChange={setMatchStatus} options={[
@@ -261,7 +278,7 @@ export default function ASNs() {
               <Input.TextArea rows={3} placeholder="Describe the discrepancy (if any)" value={matchDiscrepancyReason} onChange={e => setMatchDiscrepancyReason(e.target.value)} />
             </Form.Item>
           </Form>
-        </Modal>
+        </Drawer>
       </div>
     );
   }
@@ -285,7 +302,7 @@ export default function ASNs() {
                 <Title level={5}>Select Purchase Order</Title>
                 <Row gutter={16}>
                   <Col span={12}>
-                    <Form.Item name="po_id" label={<span>Purchase Order<span className="form-label-desc">Select PO to create ASN against</span></span>} rules={[{ required: true }]}>
+                    <Form.Item name="po_id" label={<span>Purchase Order<span className="form-label-desc">Select PO to create ASN against</span></span>} rules={[{ required: isRequired('po_id', true), message: 'Purchase Order is required' }]}>
                       <Select showSearch optionFilterProp="label" placeholder="Search PO..." onChange={handlePOChange}
                         options={pos.map(p => ({ value: p.id, label: `${p.po_number} — ₹${Number(p.total_amount).toLocaleString()} (${p.status})` }))} />
                     </Form.Item>
@@ -309,49 +326,49 @@ export default function ASNs() {
               <div>
                 <Title level={5}>ASN Details (Mandatory)</Title>
                 <Row gutter={16}>
-                  <Col span={8}><Form.Item name="invoice_number" label={<span>Invoice Number<span className="form-label-desc">Must be globally unique</span></span>} rules={[{ required: true }]}><Input placeholder="INV-2024-XXXX" /></Form.Item></Col>
-                  <Col span={8}><Form.Item name="eta" label={<span>ETA<span className="form-label-desc">Expected delivery date</span></span>} rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={8}><Form.Item name="total_amount" label={<span>Total Amount<span className="form-label-desc">Invoice total (₹)</span></span>} rules={[{ required: true }]}><InputNumber min={0} style={{ width: '100%' }} placeholder="0.00" /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="invoice_number" label={<span>Invoice Number<span className="form-label-desc">Must be globally unique</span></span>} rules={[{ required: isRequired('invoice_number', true), message: 'Invoice Number is required' }]}><Input placeholder="INV-2024-XXXX" /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="eta" label={<span>ETA<span className="form-label-desc">Expected delivery date</span></span>} rules={[{ required: isRequired('eta', true), message: 'ETA is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="total_amount" label={<span>Total Amount<span className="form-label-desc">Invoice total (₹)</span></span>} rules={[{ required: isRequired('total_amount', true), message: 'Total Amount is required' }]}><InputNumber min={0} style={{ width: '100%' }} placeholder="0.00" /></Form.Item></Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={8}><Form.Item name="lr_number" label={<span>LR Number<span className="form-label-desc">Lorry receipt number</span></span>} rules={[{ required: true }]}><Input placeholder="LR-XXXXX" /></Form.Item></Col>
-                  <Col span={8}><Form.Item name="transporter_name" label={<span>Transporter<span className="form-label-desc">Transport company name</span></span>} rules={[{ required: true }]}><Input placeholder="Transporter name" /></Form.Item></Col>
-                  <Col span={8}><Form.Item name="driver_name" label={<span>Driver Name<span className="form-label-desc">Driver handling shipment</span></span>} rules={[{ required: true }]}><Input placeholder="Driver name" /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="lr_number" label={<span>LR Number<span className="form-label-desc">Lorry receipt number</span></span>} rules={[{ required: isRequired('lr_number', true), message: 'LR Number is required' }]}><Input placeholder="LR-XXXXX" /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="transporter_name" label={<span>Transporter<span className="form-label-desc">Transport company name</span></span>} rules={[{ required: isRequired('transporter_name', true), message: 'Transporter is required' }]}><Input placeholder="Transporter name" /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="driver_name" label={<span>Driver Name<span className="form-label-desc">Driver handling shipment</span></span>} rules={[{ required: isRequired('driver_name', true), message: 'Driver Name is required' }]}><Input placeholder="Driver name" /></Form.Item></Col>
                 </Row>
                 <Divider />
                 <Title level={5}>Optional Fields</Title>
                 <Row gutter={16}>
-                  <Col span={6}><Form.Item name="driver_number" label="Driver Phone"><Input placeholder="+91 XXXXXXXXXX" /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="additional_info1" label="Additional Info 1"><Input placeholder="Optional" /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="additional_info2" label="Additional Info 2"><Input placeholder="Optional" /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="additional_info3" label="Additional Info 3"><Input placeholder="Optional" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="driver_number" label="Driver Phone" rules={[{ required: isRequired('driver_number', false), message: 'Driver Phone is required' }]}><Input placeholder="+91 XXXXXXXXXX" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="additional_info1" label="Additional Info 1" rules={[{ required: isRequired('additional_info1', false), message: 'Additional Info 1 is required' }]}><Input placeholder="Optional" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="additional_info2" label="Additional Info 2" rules={[{ required: isRequired('additional_info2', false), message: 'Additional Info 2 is required' }]}><Input placeholder="Optional" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="additional_info3" label="Additional Info 3" rules={[{ required: isRequired('additional_info3', false), message: 'Additional Info 3 is required' }]}><Input placeholder="Optional" /></Form.Item></Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={6}><Form.Item name="additional_info4" label="Additional Info 4"><Input placeholder="Optional" /></Form.Item></Col>
-                  <Col span={18}><Form.Item name="remarks" label="Remarks / Comments"><Input placeholder="Any additional notes" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="additional_info4" label="Additional Info 4" rules={[{ required: isRequired('additional_info4', false), message: 'Additional Info 4 is required' }]}><Input placeholder="Optional" /></Form.Item></Col>
+                  <Col span={18}><Form.Item name="remarks" label="Remarks / Comments" rules={[{ required: isRequired('remarks', false), message: 'Remarks is required' }]}><Input placeholder="Any additional notes" /></Form.Item></Col>
                 </Row>
                 <Divider />
                 <Title level={5}>Shipment Details</Title>
                 <Row gutter={16}>
-                  <Col span={6}><Form.Item name="shipment_mode" label="Shipment Mode"><Select allowClear placeholder="Select mode" options={SHIPMENT_MODE_OPTIONS} /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="vehicle_number" label="Vehicle Number"><Input placeholder="e.g. MH12AB1234" /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="eway_bill_number" label="E-Way Bill Number"><Input placeholder="E-way bill #" /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="dispatch_date" label="Dispatch Date"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="shipment_mode" label="Shipment Mode" rules={[{ required: isRequired('shipment_mode', false), message: 'Shipment Mode is required' }]}><Select allowClear placeholder="Select mode" options={(subMasters.shipment_mode || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="vehicle_number" label="Vehicle Number" rules={[{ required: isRequired('vehicle_number', false), message: 'Vehicle Number is required' }]}><Input placeholder="e.g. MH12AB1234" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="eway_bill_number" label="E-Way Bill Number" rules={[{ required: isRequired('eway_bill_number', false), message: 'E-Way Bill Number is required' }]}><Input placeholder="E-way bill #" /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="dispatch_date" label="Dispatch Date" rules={[{ required: isRequired('dispatch_date', false), message: 'Dispatch Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={6}><Form.Item name="actual_delivery_date" label="Actual Delivery Date"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="actual_delivery_date" label="Actual Delivery Date" rules={[{ required: isRequired('actual_delivery_date', false), message: 'Actual Delivery Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
                 </Row>
                 <Divider />
                 <Title level={5}>Invoice &amp; Tax Details</Title>
                 <Row gutter={16}>
-                  <Col span={6}><Form.Item name="invoice_currency" label="Invoice Currency" initialValue="INR"><Select options={CURRENCY_OPTIONS} /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="exchange_rate" label="Exchange Rate" initialValue={1}><InputNumber min={0} step={0.0001} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="freight_charges" label="Freight Charges" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="invoice_currency" label="Invoice Currency" initialValue="INR" rules={[{ required: isRequired('invoice_currency', false), message: 'Invoice Currency is required' }]}><Select options={(subMasters.currency || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="exchange_rate" label="Exchange Rate" initialValue={1} rules={[{ required: isRequired('exchange_rate', false), message: 'Exchange Rate is required' }]}><InputNumber min={0} step={0.0001} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="freight_charges" label="Freight Charges" initialValue={0} rules={[{ required: isRequired('freight_charges', false), message: 'Freight Charges is required' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={6}><Form.Item name="cgst_amount" label="CGST Amount" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="sgst_amount" label="SGST Amount" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={6}><Form.Item name="igst_amount" label="IGST Amount" initialValue={0}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="cgst_amount" label="CGST Amount" initialValue={0} rules={[{ required: isRequired('cgst_amount', false), message: 'CGST Amount is required' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="sgst_amount" label="SGST Amount" initialValue={0} rules={[{ required: isRequired('sgst_amount', false), message: 'SGST Amount is required' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="igst_amount" label="IGST Amount" initialValue={0} rules={[{ required: isRequired('igst_amount', false), message: 'IGST Amount is required' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
                 </Row>
               </div>
             )}
@@ -376,7 +393,7 @@ export default function ASNs() {
                             priority: c.priority,
                           }));
                           formData.append('configs', JSON.stringify(configs));
-                          const extractRes = await fetch('http://localhost:8000/extract', { method: 'POST', body: formData });
+                          const extractRes = await fetch(`${DOCUMENT_INTELLIGENCE_URL}/extract`, { method: 'POST', body: formData });
                           const extractData = await extractRes.json();
                           if (extractData.success && extractData.data) {
                             setExtractionResults(extractData.data);
@@ -536,10 +553,15 @@ export default function ASNs() {
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle"
         pagination={{ ...pagination, showSizeChanger: true, showTotal: t => `${t} ASNs`, onChange: (p, ps) => fetchData(p, ps) }}
         onRow={(record) => ({ onClick: () => openDetail(record), style: { cursor: 'pointer' } })} />
-      <Modal title="Reject ASN" open={rejectModalOpen} onCancel={() => setRejectModalOpen(false)} onOk={() => handleAction('reject')} okText="Reject" okButtonProps={{ danger: true }}>
+      <Drawer title="Reject ASN" open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} width={420} footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setRejectModalOpen(false)}>Cancel</Button>
+          <Button type="primary" danger onClick={() => handleAction('reject')}>Reject</Button>
+        </Space>
+      }>
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>Please provide a reason for rejecting this ASN.</Text>
         <Input.TextArea rows={3} placeholder="Enter rejection reason (mandatory)" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-      </Modal>
+      </Drawer>
     </div>
   );
 }

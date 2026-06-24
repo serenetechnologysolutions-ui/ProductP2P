@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { Layout, Typography, Avatar, Dropdown, Space } from 'antd';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { UserOutlined, LogoutOutlined, DownOutlined } from '@ant-design/icons';
 import Sidebar from './Sidebar';
+import ErrorBoundary from '../ErrorBoundary';
 
 const { Sider, Header, Content } = Layout;
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const user = (() => {
     try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; }
@@ -49,7 +51,9 @@ export default function AppLayout() {
             </Space>
           </Dropdown>
         </Header>
-        <Content style={{ margin: 24, minHeight: 280 }}><Outlet /></Content>
+        <Content style={{ margin: 24, minHeight: 280 }}>
+          <ErrorBoundary key={location.pathname}><Outlet /></ErrorBoundary>
+        </Content>
       </Layout>
     </Layout>
   );

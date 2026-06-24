@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Card, Typography, Popconfirm, message, Row, Col, Modal, Checkbox, Divider } from 'antd';
+import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Card, Typography, Popconfirm, message, Row, Col, Drawer, Checkbox, Divider } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SaveOutlined, SearchOutlined, TeamOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
 
 const { Title, Text } = Typography;
-const CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'].map(c => ({ value: c, label: c }));
 
 function parseMaybeJson(value) {
   if (!value) return null;
@@ -19,7 +19,7 @@ export default function ItemMaster() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
-  const [subMasters, setSubMasters] = useState({ item_category: [], item_subcategory: [], uom: [] });
+  const [subMasters, setSubMasters] = useState({ item_category: [], item_subcategory: [], uom: [], currency: [] });
   const [specRows, setSpecRows] = useState([]);
 
   // Preferred vendors modal state
@@ -30,6 +30,7 @@ export default function ItemMaster() {
   const [newVendorId, setNewVendorId] = useState(null);
   const [newVendorPreferred, setNewVendorPreferred] = useState(false);
   const [vendorMappingLoading, setVendorMappingLoading] = useState(false);
+  const { isRequired } = useFieldConfig('item_master');
 
   const fetchData = useCallback(async (searchValue) => {
     setLoading(true);
@@ -45,7 +46,7 @@ export default function ItemMaster() {
   useEffect(() => {
     (async () => {
       try {
-        const cats = ['item_category', 'item_subcategory', 'uom'];
+        const cats = ['item_category', 'item_subcategory', 'uom', 'currency'];
         const results = {};
         for (const cat of cats) { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; }
         setSubMasters(results);
@@ -199,34 +200,34 @@ export default function ItemMaster() {
           <Form form={form} layout="vertical">
             <Row gutter={16}>
               <Col span={6}>
-                <Form.Item name="item_code" label="Item Code" rules={[{ required: true, message: 'Enter item code' }]}>
+                <Form.Item name="item_code" label="Item Code" rules={[{ required: isRequired('item_code', true), message: 'Enter item code' }]}>
                   <Input placeholder="e.g. ITM-001" disabled={!!editing} />
                 </Form.Item>
               </Col>
               <Col span={10}>
-                <Form.Item name="item_description" label="Item Description" rules={[{ required: true, message: 'Enter description' }]}>
+                <Form.Item name="item_description" label="Item Description" rules={[{ required: isRequired('item_description', true), message: 'Enter description' }]}>
                   <Input placeholder="e.g. Steel Rod 12mm" />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="item_name" label="Item Name">
+                <Form.Item name="item_name" label="Item Name" rules={[{ required: isRequired('item_name', false), message: 'Item Name is required' }]}>
                   <Input placeholder="Optional short name" />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={4}>
-                <Form.Item name="uom" label="UOM (free text)" initialValue="Nos">
+                <Form.Item name="uom" label="UOM (free text)" initialValue="Nos" rules={[{ required: isRequired('uom', false), message: 'UOM is required' }]}>
                   <Input placeholder="Nos" />
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item name="category" label="Category (free text)">
+                <Form.Item name="category" label="Category (free text)" rules={[{ required: isRequired('category', false), message: 'Category is required' }]}>
                   <Input placeholder="Optional" />
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item name="category_id" label="Category (master)">
+                <Form.Item name="category_id" label="Category (master)" rules={[{ required: isRequired('category_id', false), message: 'Category (Master) is required' }]}>
                   <Select
                     allowClear
                     showSearch
@@ -237,7 +238,7 @@ export default function ItemMaster() {
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item name="subcategory_id" label="Subcategory (master)">
+                <Form.Item name="subcategory_id" label="Subcategory (master)" rules={[{ required: isRequired('subcategory_id', false), message: 'Subcategory (Master) is required' }]}>
                   <Select
                     allowClear
                     showSearch
@@ -248,7 +249,7 @@ export default function ItemMaster() {
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item name="uom_id" label="UOM (master)">
+                <Form.Item name="uom_id" label="UOM (master)" rules={[{ required: isRequired('uom_id', false), message: 'UOM (Master) is required' }]}>
                   <Select
                     allowClear
                     showSearch
@@ -261,18 +262,18 @@ export default function ItemMaster() {
             </Row>
             <Row gutter={16}>
               <Col span={6}>
-                <Form.Item name="hsn_sac_code" label="HSN/SAC Code">
+                <Form.Item name="hsn_sac_code" label="HSN/SAC Code" rules={[{ required: isRequired('hsn_sac_code', false), message: 'HSN/SAC Code is required' }]}>
                   <Input placeholder="Optional" maxLength={20} />
                 </Form.Item>
               </Col>
               <Col span={6}>
-                <Form.Item name="standard_cost" label="Standard Cost">
+                <Form.Item name="standard_cost" label="Standard Cost" rules={[{ required: isRequired('standard_cost', false), message: 'Standard Cost is required' }]}>
                   <InputNumber style={{ width: '100%' }} min={0} placeholder="0.00" />
                 </Form.Item>
               </Col>
               <Col span={6}>
-                <Form.Item name="currency" label="Currency" initialValue="INR">
-                  <Select options={CURRENCY_OPTIONS} />
+                <Form.Item name="currency" label="Currency" initialValue="INR" rules={[{ required: isRequired('currency', false), message: 'Currency is required' }]}>
+                  <Select options={(subMasters.currency || []).map(s => ({ value: s.name, label: s.name }))} />
                 </Form.Item>
               </Col>
             </Row>
@@ -301,11 +302,12 @@ export default function ItemMaster() {
         <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle" pagination={{ pageSize: 20 }} />
       </Card>
 
-      <Modal
+      <Drawer
         title={vendorModalItem ? `Preferred Vendors — ${vendorModalItem.item_description}` : 'Preferred Vendors'}
         open={vendorModalOpen}
-        onCancel={closeVendorModal}
+        onClose={closeVendorModal}
         footer={<Button onClick={closeVendorModal}>Close</Button>}
+        width={480}
         destroyOnClose
       >
         <Table
@@ -347,7 +349,7 @@ export default function ItemMaster() {
             <Button type="primary" block onClick={handleAddVendorMapping}>Add</Button>
           </Col>
         </Row>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

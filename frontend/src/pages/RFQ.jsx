@@ -11,12 +11,14 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
+import { useFieldConfig } from '../contexts/FieldConfigContext';
+import { API_BASE_URL } from '../config';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
 
-const UPLOAD_BASE = 'http://localhost:5000/';
+const UPLOAD_BASE = `${API_BASE_URL}/`;
 
 // ─── Status helpers ──────────────────────────────────────────────────────────
 
@@ -55,6 +57,17 @@ function OverviewTab({ rfq, rfqDetail, isVendor, isDraft, isPublished, isClosed,
         <Col span={6}><Statistic title="Deadline" value={rfq?.submission_deadline ? dayjs(rfq.submission_deadline).format('DD MMM YYYY HH:mm') : '—'} /></Col>
         {!isVendor && <Col span={6}><Statistic title="Vendors Invited" value={rfqDetail?.vendors?.length ?? '—'} /></Col>}
       </Row>
+
+      {rfq?.pr_number && (
+        <Card title={<Space><Tag color="purple">Source PR: {rfq.pr_number}</Tag></Space>} size="small">
+          <Row gutter={[16, 8]}>
+            <Col span={6}><Text type="secondary">Department</Text><br /><Text strong>{rfq.pr_department || '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">Priority</Text><br /><Text strong>{rfq.pr_priority || '—'}</Text></Col>
+            <Col span={6}><Text type="secondary">Required Date</Text><br /><Text strong>{rfq.pr_required_date ? dayjs(rfq.pr_required_date).format('DD MMM YYYY') : '—'}</Text></Col>
+            <Col span={24}><Text type="secondary">Justification</Text><br /><Text>{rfq.pr_justification || '—'}</Text></Col>
+          </Row>
+        </Card>
+      )}
 
       <Card title="Description" size="small">
         <Text>{rfq?.description || <Text type="secondary">No description provided.</Text>}</Text>
@@ -376,9 +389,10 @@ function ComparisonTab({ comparison, compLoading, scoringConfig, setScoringConfi
   );
 }
 
-function MyBidTab({ rfq, rfqDetail, isPublished, bidItems, bidRemarks, setBidRemarks, updateBidItem, handleSubmitBid, submittingBid, uploadBidAttachment, bidTerms, setBidTerms }) {
+function MyBidTab({ rfq, rfqDetail, isPublished, bidItems, bidRemarks, setBidRemarks, updateBidItem, handleSubmitBid, submittingBid, uploadBidAttachment, bidTerms, setBidTerms, cityOptions, overallBidAttachment, setOverallBidAttachment, uploadingOverallBid, uploadOverallBidAttachment }) {
   const hasBid = !!rfqDetail?.my_bid;
   const canBid = isPublished && new Date(rfq?.submission_deadline) > new Date();
+  const cityName = (id) => (cityOptions || []).find(c => c.id === id)?.name;
 
   if (!canBid && !hasBid) {
     return <Alert type="warning" showIcon message="Bid submission is not available." description={!isPublished ? 'This RFQ is not published yet.' : 'The submission deadline has passed.'} />;
@@ -398,7 +412,8 @@ function MyBidTab({ rfq, rfqDetail, isPublished, bidItems, bidRemarks, setBidRem
           <Col span={4}><Text type="secondary" strong>Attachment</Text></Col>
         </Row>
         {bidItems.map((bi, idx) => (
-          <Row key={bi.rfq_line_item_id} gutter={12} align="middle" style={{ marginBottom: 12 }}>
+          <div key={bi.rfq_line_item_id} style={{ marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+          <Row gutter={12} align="middle">
             <Col span={7}><Text strong>{bi.item_description}</Text><br /><Text type="secondary">{Number(bi.quantity).toLocaleString()} {bi.uom}</Text></Col>
             <Col span={4}>
               <InputNumber
@@ -446,6 +461,31 @@ function MyBidTab({ rfq, rfqDetail, isPublished, bidItems, bidRemarks, setBidRem
               )}
             </Col>
           </Row>
+          <Row gutter={12} style={{ marginTop: 8 }}>
+            <Col span={24}>
+              <Space size="middle" wrap>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text strong style={{ fontSize: 12 }}>Delivery: </Text>
+                  {bi.delivery_location_id ? (cityName(bi.delivery_location_id) || bi.delivery_location_id) : '—'}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text strong style={{ fontSize: 12 }}>Required by: </Text>
+                  {bi.required_delivery_date ? dayjs(bi.required_delivery_date).format('DD MMM YYYY') : '—'}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text strong style={{ fontSize: 12 }}>Tech Specs: </Text>
+                  {bi.technical_specifications?.notes || '—'}
+                </Text>
+                {bi.spec_attachment_path && (
+                  <Text style={{ fontSize: 12 }}>
+                    <Text strong style={{ fontSize: 12 }}>Spec: </Text>
+                    <AttachmentLink path={bi.spec_attachment_path} name={bi.spec_attachment_name} />
+                  </Text>
+                )}
+              </Space>
+            </Col>
+          </Row>
+          </div>
         ))}
         <Divider />
         <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -486,6 +526,21 @@ function MyBidTab({ rfq, rfqDetail, isPublished, bidItems, bidRemarks, setBidRem
             </Checkbox>
           </Col>
         </Row>
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={24}>
+            <Text type="secondary" strong>Supporting Documents (overall — e.g. covering quotation)</Text><br />
+            {overallBidAttachment.path ? (
+              <Space>
+                <AttachmentLink path={overallBidAttachment.path} name={overallBidAttachment.name} />
+                {canBid && <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => setOverallBidAttachment({ path: null, name: null })} />}
+              </Space>
+            ) : (
+              <Upload disabled={!canBid} showUploadList={false} customRequest={({ file, onSuccess, onError }) => uploadOverallBidAttachment(file, onSuccess, onError)}>
+                <Button size="small" icon={<UploadOutlined />} loading={uploadingOverallBid} disabled={!canBid}>Attach Document</Button>
+              </Upload>
+            )}
+          </Col>
+        </Row>
         <Row gutter={12} align="middle">
           <Col span={16}>
             <Input.TextArea
@@ -515,7 +570,7 @@ function MyBidTab({ rfq, rfqDetail, isPublished, bidItems, bidRemarks, setBidRem
   );
 }
 
-function AwardTab({ isClosed, isAwarded, bidderVendors, hasBids, awardMode, setAwardMode, singleAwardVendor, setSingleAwardVendor, awardItems, updateAwardItem, handleAward, awarding }) {
+function AwardTab({ isClosed, isAwarded, bidderVendors, hasBids, awardMode, setAwardMode, singleAwardVendor, setSingleAwardVendor, awardLines, awardItems, addAwardSplit, removeAwardItem, updateAwardItem, handleAward, awarding }) {
   if (!isClosed) return <Alert type="info" showIcon message="RFQ must be closed before awarding." />;
   if (isAwarded) return <Alert type="success" showIcon message="This RFQ has already been awarded and Purchase Orders have been generated." />;
   if (!hasBids) return <Alert type="warning" showIcon message="No bids received. Cannot award." />;
@@ -527,7 +582,7 @@ function AwardTab({ isClosed, isAwarded, bidderVendors, hasBids, awardMode, setA
           <Form.Item label="Award Mode">
             <Radio.Group value={awardMode} onChange={e => setAwardMode(e.target.value)}>
               <Radio value="single">Single Vendor — award all items to one vendor</Radio>
-              <Radio value="split">Multi-Vendor Split — select a vendor per item</Radio>
+              <Radio value="split">Multi-Vendor Split — assign vendor(s) and quantity per item, can split one line across vendors</Radio>
             </Radio.Group>
           </Form.Item>
 
@@ -545,29 +600,45 @@ function AwardTab({ isClosed, isAwarded, bidderVendors, hasBids, awardMode, setA
           )}
 
           <Divider orientation="left">Final Quantities & Negotiated Prices</Divider>
-          {awardItems.map((ai, idx) => (
-            <Row key={ai.rfq_line_item_id} gutter={12} align="middle" style={{ marginBottom: 12 }}>
-              <Col span={8}><Text strong>{ai.item_description}</Text></Col>
-              <Col span={4}>
-                <InputNumber style={{ width: '100%' }} min={0.001} placeholder="Final qty" value={ai.quantity} onChange={v => updateAwardItem(idx, 'quantity', v)} />
-              </Col>
-              <Col span={4}>
-                <InputNumber style={{ width: '100%' }} min={0} prefix="₹" placeholder="Final price" value={ai.unit_price} onChange={v => updateAwardItem(idx, 'unit_price', v)} />
-              </Col>
-              {awardMode === 'split' && (
-                <Col span={8}>
-                  <Select
-                    style={{ width: '100%' }}
-                    placeholder="Select vendor"
-                    value={ai.vendor_id || undefined}
-                    onChange={v => updateAwardItem(idx, 'vendor_id', v)}
-                  >
-                    {bidderVendors.map(v => <Option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</Option>)}
-                  </Select>
-                </Col>
-              )}
-            </Row>
-          ))}
+          {awardLines.filter(l => l.remaining_to_award > 0).map(line => {
+            const rows = awardItems.filter(ai => ai.rfq_line_item_id === line.rfq_line_item_id);
+            return (
+              <div key={line.rfq_line_item_id} style={{ border: '1px solid #f0f0f0', borderRadius: 6, padding: 8, marginBottom: 8 }}>
+                <Row gutter={12} align="middle" style={{ marginBottom: 8 }}>
+                  <Col flex="auto"><Text strong>{line.item_description}</Text></Col>
+                  <Col><Text type="secondary">Remaining to award: {line.remaining_to_award.toLocaleString()}</Text></Col>
+                  {awardMode === 'split' && (
+                    <Col><Button size="small" type="dashed" onClick={() => addAwardSplit(line.rfq_line_item_id)}>+ Split vendor</Button></Col>
+                  )}
+                </Row>
+                {rows.map(ai => (
+                  <Row key={ai.id} gutter={12} align="middle" style={{ marginBottom: 8 }}>
+                    <Col span={4}>
+                      <InputNumber style={{ width: '100%' }} min={0.001} placeholder="Final qty" value={ai.quantity} onChange={v => updateAwardItem(ai.id, 'quantity', v)} />
+                    </Col>
+                    <Col span={4}>
+                      <InputNumber style={{ width: '100%' }} min={0} prefix="₹" placeholder="Final price" value={ai.unit_price} onChange={v => updateAwardItem(ai.id, 'unit_price', v)} />
+                    </Col>
+                    {awardMode === 'split' && (
+                      <Col span={10}>
+                        <Select
+                          style={{ width: '100%' }}
+                          placeholder="Select vendor"
+                          value={ai.vendor_id || undefined}
+                          onChange={v => updateAwardItem(ai.id, 'vendor_id', v)}
+                        >
+                          {bidderVendors.map(v => <Option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</Option>)}
+                        </Select>
+                      </Col>
+                    )}
+                    {awardMode === 'split' && rows.length > 1 && (
+                      <Col span={2}><Button icon={<DeleteOutlined />} danger size="small" onClick={() => removeAwardItem(ai.id)} /></Col>
+                    )}
+                  </Row>
+                ))}
+              </div>
+            );
+          })}
 
           <div style={{ marginTop: 16 }}>
             <Alert
@@ -596,6 +667,8 @@ export default function RFQ() {
 
   const [view, setView] = useState('list'); // list | detail | create
   const [rfqList, setRfqList] = useState([]);
+  const { isRequired } = useFieldConfig('rfq');
+  const { isRequired: isBidFieldRequired } = useFieldConfig('rfq_bid');
   const [loading, setLoading] = useState(false);
   const [selectedRfq, setSelectedRfq] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -611,6 +684,8 @@ export default function RFQ() {
   const [bidRemarks, setBidRemarks] = useState('');
   const [submittingBid, setSubmittingBid] = useState(false);
   const [bidTerms, setBidTerms] = useState({ taxes_included_flag: false, offered_payment_terms: '', warranty_period: '', deviation_flag: false });
+  const [overallBidAttachment, setOverallBidAttachment] = useState({ path: null, name: null });
+  const [uploadingOverallBid, setUploadingOverallBid] = useState(false);
 
   // Comparison — scoring weight config (admin-editable)
   const [scoringConfig, setScoringConfig] = useState(null);
@@ -619,6 +694,7 @@ export default function RFQ() {
   // Award form
   const [awardMode, setAwardMode] = useState('single');
   const [singleAwardVendor, setSingleAwardVendor] = useState(null);
+  const [awardLines, setAwardLines] = useState([]);
   const [awardItems, setAwardItems] = useState([]);
   const [awarding, setAwarding] = useState(false);
 
@@ -628,8 +704,19 @@ export default function RFQ() {
   const [vendors, setVendors] = useState([]);
   const [itemMasterList, setItemMasterList] = useState([]);
   const [creating, setCreating] = useState(false);
+  const [editingRfqId, setEditingRfqId] = useState(null);
   const [procurementCategories, setProcurementCategories] = useState([]);
   const [cityOptions, setCityOptions] = useState([]);
+  const [rfqTypeOptions, setRfqTypeOptions] = useState([]);
+
+  // Create RFQ from PR
+  const [prSourceModalOpen, setPrSourceModalOpen] = useState(false);
+  const [availablePrs, setAvailablePrs] = useState([]);
+  const [sourcePrId, setSourcePrId] = useState(null);
+  const [prLineSelections, setPrLineSelections] = useState([]);
+  const [prSourceVendorIds, setPrSourceVendorIds] = useState([]);
+  const [prSourceDeadline, setPrSourceDeadline] = useState(null);
+  const [creatingFromPr, setCreatingFromPr] = useState(false);
 
   // ── Fetch list ─────────────────────────────────────────────────────────────
 
@@ -660,6 +747,8 @@ export default function RFQ() {
             const existing = detail.my_bid.bid_items.find(bi => bi.rfq_line_item_id === li.id);
             return {
               rfq_line_item_id: li.id, item_description: li.item_description, quantity: li.quantity, uom: li.uom,
+              delivery_location_id: li.delivery_location_id, required_delivery_date: li.required_delivery_date,
+              technical_specifications: li.technical_specifications, spec_attachment_path: li.attachment_path, spec_attachment_name: li.attachment_name,
               unit_price: existing ? existing.unit_price : '', lead_time_days: existing ? existing.lead_time_days : '',
               remarks: existing ? existing.remarks : '',
               attachment_path: existing ? existing.attachment_path : null, attachment_name: existing ? existing.attachment_name : null,
@@ -673,19 +762,37 @@ export default function RFQ() {
           warranty_period: detail.my_bid.warranty_period || '',
           deviation_flag: !!detail.my_bid.deviation_flag,
         });
+        setOverallBidAttachment({ path: detail.my_bid.overall_attachment_path || null, name: detail.my_bid.overall_attachment_name || null });
       } else if (isVendor) {
-        setBidItems(detail.line_items.map(li => ({ rfq_line_item_id: li.id, item_description: li.item_description, quantity: li.quantity, uom: li.uom, unit_price: '', lead_time_days: '', remarks: '', attachment_path: null, attachment_name: null })));
+        setBidItems(detail.line_items.map(li => ({
+          rfq_line_item_id: li.id, item_description: li.item_description, quantity: li.quantity, uom: li.uom,
+          delivery_location_id: li.delivery_location_id, required_delivery_date: li.required_delivery_date,
+          technical_specifications: li.technical_specifications, spec_attachment_path: li.attachment_path, spec_attachment_name: li.attachment_name,
+          unit_price: '', lead_time_days: '', remarks: '', attachment_path: null, attachment_name: null,
+        })));
         setBidRemarks('');
         setBidTerms({ taxes_included_flag: false, offered_payment_terms: '', warranty_period: '', deviation_flag: false });
+        setOverallBidAttachment({ path: null, name: null });
       }
 
-      // Pre-fill award items
-      if (!isVendor) {
-        setAwardItems(detail.line_items.map(li => ({ rfq_line_item_id: li.id, item_description: li.item_description, quantity: li.quantity, uom: li.uom, unit_price: '', vendor_id: '' })));
-      }
     } catch { message.error('Failed to load RFQ details'); }
     setDetailLoading(false);
   }, [isVendor]);
+
+  // ── Fetch award allocation (remaining-to-award per line) ───────────────────
+
+  const fetchAwardAllocation = useCallback(async (id) => {
+    try {
+      const res = await api.get(`/rfq/${id}/allocation`);
+      const lines = res.data.data.lines || [];
+      setAwardLines(lines);
+      setAwardItems(
+        lines.filter(l => l.remaining_to_award > 0).map(l => ({
+          id: `${l.rfq_line_item_id}-0`, rfq_line_item_id: l.rfq_line_item_id, quantity: l.remaining_to_award, unit_price: '', vendor_id: '',
+        }))
+      );
+    } catch { /* non-critical */ }
+  }, []);
 
   // ── Fetch comparison ───────────────────────────────────────────────────────
 
@@ -730,6 +837,72 @@ export default function RFQ() {
     } catch { /* non-critical */ }
   }, []);
 
+  const fetchRfqTypes = useCallback(async () => {
+    try {
+      const res = await api.get('/sub-masters/rfq_type');
+      setRfqTypeOptions(res.data.data || []);
+    } catch { /* non-critical */ }
+  }, []);
+
+  // ── Create RFQ from PR ──────────────────────────────────────────────────────
+
+  const openPrSourceModal = async () => {
+    setSourcePrId(null);
+    setPrLineSelections([]);
+    setPrSourceVendorIds([]);
+    setPrSourceDeadline(null);
+    if (vendors.length === 0) fetchVendors();
+    try {
+      // Fetch every non-terminal status, not just approved/sourcing, so a PR
+      // that's still pending approval (the most common reason it "doesn't show
+      // up") is visible in the list — just disabled, with the reason why.
+      const statuses = ['draft', 'submitted', 'approved', 'partially_approved', 'sourcing'];
+      const results = await Promise.all(statuses.map(status => api.get('/pr', { params: { status } })));
+      const prs = results.flatMap(r => r.data.data || []).filter(p => p.sourcing_strategy !== 'CONTRACT_BASED');
+      setAvailablePrs(prs);
+    } catch { message.error('Failed to load requisitions'); }
+    setPrSourceModalOpen(true);
+  };
+
+  const prSourceEligible = (p) => ['approved', 'sourcing'].includes(p.status);
+  const prSourceStatusReason = (p) => {
+    if (p.status === 'draft') return 'not yet submitted';
+    if (p.status === 'submitted') return `awaiting approval${p.current_approver_role ? ` (${p.current_approver_role})` : ''}`;
+    if (p.status === 'partially_approved') return 'partially approved';
+    return null;
+  };
+
+  const handleSelectSourcePr = async (prId) => {
+    setSourcePrId(prId);
+    try {
+      const res = await api.get(`/pr/${prId}/allocation`);
+      const lines = (res.data.data.lines || []).filter(l => l.remaining_quantity > 0);
+      setPrLineSelections(lines.map(l => ({ pr_line_item_id: l.pr_line_item_id, description: l.description, max: l.remaining_quantity, quantity: l.remaining_quantity, selected: true })));
+    } catch { message.error('Failed to load requisition lines'); setPrLineSelections([]); }
+  };
+
+  const toggleSourcePrLine = (id, checked) => setPrLineSelections(prev => prev.map(l => l.pr_line_item_id === id ? { ...l, selected: checked } : l));
+  const updateSourcePrLineQty = (id, qty) => setPrLineSelections(prev => prev.map(l => l.pr_line_item_id === id ? { ...l, quantity: qty } : l));
+
+  const handleCreateRfqFromPr = async () => {
+    if (!sourcePrId) { message.error('Select a requisition'); return; }
+    if (!prSourceVendorIds.length || !prSourceDeadline) { message.error('Select vendors and a submission deadline'); return; }
+    const lines = prLineSelections.filter(l => l.selected && l.quantity > 0).map(l => ({ pr_line_item_id: l.pr_line_item_id, quantity: l.quantity }));
+    if (lines.length === 0) { message.error('Select at least one line item'); return; }
+    setCreatingFromPr(true);
+    try {
+      const res = await api.post(`/pr/${sourcePrId}/create-rfq`, {
+        vendor_ids: prSourceVendorIds,
+        submission_deadline: prSourceDeadline.toISOString(),
+        lines,
+      });
+      message.success(`RFQ ${res.data.data.rfq_number} created`);
+      setPrSourceModalOpen(false);
+      fetchList();
+    } catch (e) { message.error(e.response?.data?.error || 'Failed to create RFQ'); }
+    setCreatingFromPr(false);
+  };
+
   // ── Open detail ────────────────────────────────────────────────────────────
 
   const openDetail = (rfq) => {
@@ -769,6 +942,9 @@ export default function RFQ() {
     if (key === 'comparison' && !comparison && selectedRfq) {
       fetchComparison(selectedRfq.id);
     }
+    if (key === 'award' && selectedRfq) {
+      fetchAwardAllocation(selectedRfq.id);
+    }
   };
 
   // ── Status actions ─────────────────────────────────────────────────────────
@@ -806,6 +982,15 @@ export default function RFQ() {
         return;
       }
     }
+    if (isBidFieldRequired('offered_payment_terms', false) && !bidTerms.offered_payment_terms?.trim()) {
+      message.error('Offered Payment Terms is required'); return;
+    }
+    if (isBidFieldRequired('warranty_period', false) && !bidTerms.warranty_period?.trim()) {
+      message.error('Warranty Period is required'); return;
+    }
+    if (isBidFieldRequired('bid_remarks', false) && !bidRemarks?.trim()) {
+      message.error('Overall Bid Remarks is required'); return;
+    }
     setSubmittingBid(true);
     try {
       await api.post(`/rfq/${selectedRfq.id}/bids`, {
@@ -822,6 +1007,8 @@ export default function RFQ() {
         offered_payment_terms: bidTerms.offered_payment_terms || null,
         warranty_period: bidTerms.warranty_period || null,
         deviation_flag: bidTerms.deviation_flag,
+        overall_attachment_path: overallBidAttachment.path || null,
+        overall_attachment_name: overallBidAttachment.name || null,
       });
       message.success('Bid submitted successfully');
       fetchDetail(selectedRfq.id);
@@ -848,6 +1035,23 @@ export default function RFQ() {
     }
   };
 
+  // Overall (bid-level, not per-line) supporting document — e.g. a covering quotation PDF.
+  const uploadOverallBidAttachment = async (file, onSuccess, onError) => {
+    setUploadingOverallBid(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/upload/file', formData);
+      setOverallBidAttachment({ path: res.data.data.file_path, name: res.data.data.file_name });
+      message.success('Attachment uploaded');
+      onSuccess(res.data);
+    } catch (err) {
+      message.error('Attachment upload failed');
+      onError(err);
+    }
+    setUploadingOverallBid(false);
+  };
+
   // ── Award ──────────────────────────────────────────────────────────────────
 
   const handleAward = async () => {
@@ -870,8 +1074,9 @@ export default function RFQ() {
     }
 
     for (const ai of payload) {
-      if (!ai.vendor_id) { message.error('Assign a vendor for each line item'); return; }
-      if (!ai.unit_price) { message.error('Enter final price for each line item'); return; }
+      if (!ai.quantity || ai.quantity <= 0) { message.error('Enter a quantity greater than zero for each award row'); return; }
+      if (!ai.vendor_id) { message.error('Assign a vendor for each award row'); return; }
+      if (!ai.unit_price) { message.error('Enter final price for each award row'); return; }
     }
 
     setAwarding(true);
@@ -885,19 +1090,65 @@ export default function RFQ() {
     setAwarding(false);
   };
 
-  const updateAwardItem = (idx, field, value) => {
-    setAwardItems(prev => prev.map((ai, i) => i === idx ? { ...ai, [field]: value } : ai));
+  const updateAwardItem = (rowId, field, value) => {
+    setAwardItems(prev => prev.map(ai => ai.id === rowId ? { ...ai, [field]: value } : ai));
   };
+
+  // Splits a line across an additional vendor — only meaningful in 'split'
+  // mode, where each row gets its own vendor + quantity.
+  const addAwardSplit = (rfqLineItemId) => {
+    setAwardItems(prev => [...prev, { id: `${rfqLineItemId}-${Date.now()}`, rfq_line_item_id: rfqLineItemId, quantity: '', unit_price: '', vendor_id: '' }]);
+  };
+
+  const removeAwardItem = (rowId) => setAwardItems(prev => prev.filter(ai => ai.id !== rowId));
 
   // ── Create RFQ (full page, no popup) ───────────────────────────────────────
 
   const openCreatePage = () => {
+    setEditingRfqId(null);
     fetchVendors();
     fetchItemMaster();
     fetchProcurementCategories();
+    fetchRfqTypes();
     fetchCities();
     setCreateLineItems([{ item_master_id: null, item_description: '', quantity: 1, uom: 'Nos', target_price: '', remarks: '', attachment_path: null, attachment_name: null, delivery_location_id: null, required_delivery_date: null, technical_specifications: '' }]);
     createForm.resetFields();
+    setView('create');
+  };
+
+  // Edit is allowed at any RFQ status — line items carry their existing id so
+  // the PUT can update them in place (preserving bids/award links) instead of
+  // recreating them.
+  const openEditRfqPage = (rfqToEdit, detail) => {
+    setEditingRfqId(rfqToEdit.id);
+    fetchVendors();
+    fetchItemMaster();
+    fetchProcurementCategories();
+    fetchRfqTypes();
+    fetchCities();
+    createForm.setFieldsValue({
+      title: rfqToEdit.title,
+      description: rfqToEdit.description,
+      submission_deadline: dayjs(rfqToEdit.submission_deadline),
+      rfq_type: rfqToEdit.rfq_type,
+      procurement_category_id: rfqToEdit.procurement_category_id || undefined,
+      budget_value: rfqToEdit.budget_value || undefined,
+      vendor_ids: (detail?.vendors || []).map(v => v.vendor_id),
+    });
+    setCreateLineItems((detail?.line_items || []).map(li => ({
+      id: li.id,
+      item_master_id: li.item_master_id || null,
+      item_description: li.item_description,
+      quantity: li.quantity,
+      uom: li.uom,
+      target_price: li.target_price || '',
+      remarks: li.remarks || '',
+      attachment_path: li.attachment_path || null,
+      attachment_name: li.attachment_name || null,
+      delivery_location_id: li.delivery_location_id || null,
+      required_delivery_date: li.required_delivery_date ? dayjs(li.required_delivery_date) : null,
+      technical_specifications: li.technical_specifications?.notes || '',
+    })));
     setView('create');
   };
 
@@ -946,12 +1197,12 @@ export default function RFQ() {
         return;
       }
       setCreating(true);
-      await api.post('/rfq', {
+      const payload = {
         title: values.title,
         description: values.description,
         submission_deadline: values.submission_deadline.toISOString(),
         vendor_ids: values.vendor_ids,
-        rfq_type: values.rfq_type || 'limited',
+        rfq_type: values.rfq_type || 'Limited',
         procurement_category_id: values.procurement_category_id || null,
         budget_value: values.budget_value || null,
         line_items: createLineItems.map(li => ({
@@ -959,13 +1210,21 @@ export default function RFQ() {
           required_delivery_date: li.required_delivery_date ? li.required_delivery_date.format('YYYY-MM-DD') : null,
           technical_specifications: li.technical_specifications ? { notes: li.technical_specifications } : null,
         })),
-      });
-      message.success('RFQ created as draft');
-      setView('list');
-      fetchList();
+      };
+      if (editingRfqId) {
+        await api.put(`/rfq/${editingRfqId}`, payload);
+        message.success('RFQ updated');
+        setView('detail');
+        fetchDetail(editingRfqId);
+      } else {
+        await api.post('/rfq', payload);
+        message.success('RFQ created as draft');
+        setView('list');
+        fetchList();
+      }
     } catch (e) {
       if (e.errorFields) { setCreating(false); return; }
-      message.error(e.response?.data?.message || 'Failed to create RFQ');
+      message.error(e.response?.data?.error || e.response?.data?.message || 'Failed to save RFQ');
     }
     setCreating(false);
   };
@@ -976,6 +1235,7 @@ export default function RFQ() {
 
   const columns = [
     { title: 'RFQ Number', dataIndex: 'rfq_number', key: 'rfq_number', render: v => <Text strong>{v}</Text> },
+    { title: 'Source PR', dataIndex: 'pr_number', key: 'pr_number', width: 110, render: v => v ? <Tag color="purple">{v}</Tag> : <Text type="secondary">—</Text> },
     { title: 'Title', dataIndex: 'title', key: 'title', ellipsis: true },
     { title: 'Status', dataIndex: 'status', key: 'status', render: s => <StatusTag status={s} />, width: 110 },
     {
@@ -1012,7 +1272,10 @@ export default function RFQ() {
           </Col>
           {!isVendor && (
             <Col>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreatePage}>Create RFQ</Button>
+              <Space>
+                <Button icon={<FileTextOutlined />} onClick={openPrSourceModal}>Create RFQ from PR</Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreatePage}>Create RFQ</Button>
+              </Space>
             </Col>
           )}
         </Row>
@@ -1027,6 +1290,62 @@ export default function RFQ() {
             pagination={{ pageSize: 15, showSizeChanger: false }}
           />
         </Card>
+
+        <Modal
+          title="Create RFQ from Purchase Requisition"
+          open={prSourceModalOpen}
+          onCancel={() => setPrSourceModalOpen(false)}
+          onOk={handleCreateRfqFromPr}
+          okText="Create RFQ"
+          okButtonProps={{ loading: creatingFromPr }}
+          width={680}
+        >
+          <Form layout="vertical">
+            <Alert
+              type="info" showIcon style={{ marginBottom: 16 }}
+              message="Only approved (or already-sourcing) requisitions can be used here."
+              description="A requisition still pending approval shows up below, grayed out, with the reason — approve it first, then come back."
+            />
+            <Form.Item label="Requisition" required>
+              <Select
+                showSearch placeholder="Select an approved/sourcing requisition" optionFilterProp="label"
+                value={sourcePrId} onChange={handleSelectSourcePr}
+                options={availablePrs.map(p => {
+                  const reason = prSourceStatusReason(p);
+                  return {
+                    value: p.id,
+                    disabled: !prSourceEligible(p),
+                    label: `${p.pr_number} — ${p.department}${reason ? ` (${reason})` : ''}`,
+                  };
+                })}
+              />
+            </Form.Item>
+            {sourcePrId && (
+              <>
+                <Form.Item label="Invite Vendors" required>
+                  <Select mode="multiple" placeholder="Select vendors" value={prSourceVendorIds} onChange={setPrSourceVendorIds} optionFilterProp="label"
+                    options={vendors.map(v => ({ value: v.id, label: v.vendor_name }))} />
+                </Form.Item>
+                <Form.Item label="Submission Deadline" required>
+                  <DatePicker showTime style={{ width: '100%' }} value={prSourceDeadline} onChange={setPrSourceDeadline} disabledDate={d => d && d.isBefore(dayjs())} />
+                </Form.Item>
+                <Form.Item label="Line Items & Quantities (remaining on requisition)">
+                  {prLineSelections.length === 0 ? <Empty description="No remaining quantity on this requisition" /> : (
+                    <Table
+                      size="small" pagination={false} rowKey="pr_line_item_id" dataSource={prLineSelections}
+                      columns={[
+                        { title: '', width: 40, render: (_, row) => <Checkbox checked={row.selected} onChange={e => toggleSourcePrLine(row.pr_line_item_id, e.target.checked)} /> },
+                        { title: 'Line', dataIndex: 'description' },
+                        { title: 'Remaining', dataIndex: 'max', width: 100, render: v => Number(v).toLocaleString() },
+                        { title: 'Quantity', width: 130, render: (_, row) => <InputNumber size="small" style={{ width: '100%' }} min={0.001} max={row.max} value={row.quantity} disabled={!row.selected} onChange={v => updateSourcePrLineQty(row.pr_line_item_id, v)} /> },
+                      ]}
+                    />
+                  )}
+                </Form.Item>
+              </>
+            )}
+          </Form>
+        </Modal>
       </div>
     );
   }
@@ -1040,10 +1359,10 @@ export default function RFQ() {
       <div style={{ padding: '24px' }}>
         <Row align="middle" style={{ marginBottom: 16 }}>
           <Col>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => setView('list')} style={{ marginRight: 12 }}>Back</Button>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => setView(editingRfqId ? 'detail' : 'list')} style={{ marginRight: 12 }}>Back</Button>
           </Col>
           <Col flex="auto">
-            <Title level={4} style={{ margin: 0 }}>Create RFQ</Title>
+            <Title level={4} style={{ margin: 0 }}>{editingRfqId ? 'Edit RFQ' : 'Create RFQ'}</Title>
           </Col>
         </Row>
 
@@ -1051,20 +1370,20 @@ export default function RFQ() {
           <Form form={createForm} layout="vertical">
             <Row gutter={16}>
               <Col span={16}>
-                <Form.Item name="title" label="RFQ Title" rules={[{ required: true, message: 'Enter a title' }]}>
+                <Form.Item name="title" label="RFQ Title" rules={[{ required: isRequired('title', true), message: 'Enter a title' }]}>
                   <Input placeholder="e.g. Q3 Steel Components Supply" />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="submission_deadline" label="Bid Deadline" rules={[{ required: true, message: 'Select deadline' }]}>
+                <Form.Item name="submission_deadline" label="Bid Deadline" rules={[{ required: isRequired('submission_deadline', true), message: 'Select deadline' }]}>
                   <DatePicker showTime style={{ width: '100%' }} disabledDate={d => d && d.isBefore(dayjs())} />
                 </Form.Item>
               </Col>
             </Row>
-            <Form.Item name="description" label="Description">
+            <Form.Item name="description" label="Description" rules={[{ required: isRequired('description', false), message: 'Description is required' }]}>
               <TextArea rows={2} placeholder="Scope and context for this RFQ" />
             </Form.Item>
-            <Form.Item name="vendor_ids" label="Invite Vendors" rules={[{ required: true, message: 'Select at least one vendor' }]}>
+            <Form.Item name="vendor_ids" label="Invite Vendors" rules={[{ required: isRequired('vendor_ids', true), message: 'Select at least one vendor' }]}>
               <Select mode="multiple" placeholder="Select approved vendors to invite" optionFilterProp="children">
                 {vendors.map(v => <Option key={v.id} value={v.id}>{v.vendor_name} — {v.company_name}</Option>)}
               </Select>
@@ -1072,23 +1391,19 @@ export default function RFQ() {
 
             <Row gutter={16}>
               <Col span={8}>
-                <Form.Item name="rfq_type" label="RFQ Type" initialValue="limited">
-                  <Select placeholder="Select RFQ type">
-                    <Option value="open">Open</Option>
-                    <Option value="limited">Limited</Option>
-                    <Option value="single">Single</Option>
-                  </Select>
+                <Form.Item name="rfq_type" label="RFQ Type" initialValue="Limited" rules={[{ required: isRequired('rfq_type', false), message: 'RFQ Type is required' }]}>
+                  <Select placeholder="Select RFQ type" options={rfqTypeOptions.map(s => ({ value: s.name, label: s.name }))} />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="procurement_category_id" label="Procurement Category">
+                <Form.Item name="procurement_category_id" label="Procurement Category" rules={[{ required: isRequired('procurement_category_id', false), message: 'Procurement Category is required' }]}>
                   <Select placeholder="Select category" allowClear optionFilterProp="children">
                     {procurementCategories.map(c => <Option key={c.id} value={c.id}>{c.name}</Option>)}
                   </Select>
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="budget_value" label="Budget Value">
+                <Form.Item name="budget_value" label="Budget Value" rules={[{ required: isRequired('budget_value', false), message: 'Budget Value is required' }]}>
                   <InputNumber style={{ width: '100%' }} min={0} prefix="₹" placeholder="Estimated budget" />
                 </Form.Item>
               </Col>
@@ -1216,8 +1531,8 @@ export default function RFQ() {
 
             <Divider />
             <Space size="middle">
-              <Button type="primary" size="large" icon={<SendOutlined />} loading={creating} onClick={handleCreate}>Create RFQ</Button>
-              <Button size="large" onClick={() => setView('list')}>Cancel</Button>
+              <Button type="primary" size="large" icon={<SendOutlined />} loading={creating} onClick={handleCreate}>{editingRfqId ? 'Save Changes' : 'Create RFQ'}</Button>
+              <Button size="large" onClick={() => setView(editingRfqId ? 'detail' : 'list')}>Cancel</Button>
             </Space>
           </Form>
         </Card>
@@ -1242,13 +1557,13 @@ export default function RFQ() {
     { key: 'items', label: 'Line Items', children: <LineItemsTab lineItems={rfqDetail?.line_items} cityOptions={cityOptions} /> },
     { key: 'responses', label: <span><TeamOutlined /> Vendor Responses {rfqDetail?.bids?.length ? <Badge count={rfqDetail.bids.length} style={{ marginLeft: 4 }} /> : null}</span>, children: <ResponsesTab rfqDetail={rfqDetail} /> },
     ...(rfqDetail?.bids?.length > 0 ? [{ key: 'comparison', label: <span><BarChartOutlined /> Comparison</span>, children: <ComparisonTab comparison={comparison} compLoading={compLoading} scoringConfig={scoringConfig} setScoringConfig={setScoringConfig} savingScoringConfig={savingScoringConfig} handleSaveScoringConfig={handleSaveScoringConfig} /> }] : []),
-    ...(isClosed ? [{ key: 'award', label: <span><TrophyOutlined /> Award</span>, children: <AwardTab isClosed={isClosed} isAwarded={isAwarded} bidderVendors={bidderVendors} hasBids={!!rfqDetail?.bids?.length} awardMode={awardMode} setAwardMode={setAwardMode} singleAwardVendor={singleAwardVendor} setSingleAwardVendor={setSingleAwardVendor} awardItems={awardItems} updateAwardItem={updateAwardItem} handleAward={handleAward} awarding={awarding} /> }] : []),
+    ...(isClosed ? [{ key: 'award', label: <span><TrophyOutlined /> Award</span>, children: <AwardTab isClosed={isClosed} isAwarded={isAwarded} bidderVendors={bidderVendors} hasBids={!!rfqDetail?.bids?.length} awardMode={awardMode} setAwardMode={setAwardMode} singleAwardVendor={singleAwardVendor} setSingleAwardVendor={setSingleAwardVendor} awardLines={awardLines} awardItems={awardItems} addAwardSplit={addAwardSplit} removeAwardItem={removeAwardItem} updateAwardItem={updateAwardItem} handleAward={handleAward} awarding={awarding} /> }] : []),
   ];
 
   const vendorTabs = [
     { key: 'overview', label: <span><FileTextOutlined /> Overview</span>, children: <OverviewTab rfq={rfq} rfqDetail={rfqDetail} isVendor={isVendor} isDraft={isDraft} isPublished={isPublished} isClosed={isClosed} isAwarded={isAwarded} handlePublish={handlePublish} handleClose={handleClose} /> },
     { key: 'items', label: 'Line Items', children: <LineItemsTab lineItems={rfqDetail?.line_items} cityOptions={cityOptions} /> },
-    { key: 'bid', label: <span><EditOutlined /> My Bid</span>, children: <MyBidTab rfq={rfq} rfqDetail={rfqDetail} isPublished={isPublished} bidItems={bidItems} bidRemarks={bidRemarks} setBidRemarks={setBidRemarks} updateBidItem={updateBidItem} handleSubmitBid={handleSubmitBid} submittingBid={submittingBid} uploadBidAttachment={uploadBidAttachment} bidTerms={bidTerms} setBidTerms={setBidTerms} /> },
+    { key: 'bid', label: <span><EditOutlined /> My Bid</span>, children: <MyBidTab rfq={rfq} rfqDetail={rfqDetail} isPublished={isPublished} bidItems={bidItems} bidRemarks={bidRemarks} setBidRemarks={setBidRemarks} updateBidItem={updateBidItem} handleSubmitBid={handleSubmitBid} submittingBid={submittingBid} uploadBidAttachment={uploadBidAttachment} bidTerms={bidTerms} setBidTerms={setBidTerms} cityOptions={cityOptions} overallBidAttachment={overallBidAttachment} setOverallBidAttachment={setOverallBidAttachment} uploadingOverallBid={uploadingOverallBid} uploadOverallBidAttachment={uploadOverallBidAttachment} /> },
   ];
 
   return (
@@ -1261,6 +1576,9 @@ export default function RFQ() {
           <Title level={4} style={{ margin: 0 }}>{rfq?.rfq_number} — {rfq?.title}</Title>
         </Col>
         <Col>
+          {!isVendor && (
+            <Button icon={<EditOutlined />} style={{ marginRight: 8 }} onClick={() => openEditRfqPage(rfq, rfqDetail)}>Edit RFQ</Button>
+          )}
           <StatusTag status={rfq?.status} />
         </Col>
       </Row>

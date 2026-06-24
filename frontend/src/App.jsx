@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { FieldConfigProvider } from './contexts/FieldConfigContext';
 import AppLayout from './components/Layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Vendors from './pages/Vendors';
 import ASNs from './pages/ASNs';
 import SubMasters from './pages/SubMasters';
+import ProcurementSubMasters from './pages/ProcurementSubMasters';
 import VendorOnboarding from './pages/VendorOnboarding';
 import ChangePassword from './pages/ChangePassword';
 import PurchaseOrders from './pages/PurchaseOrders';
@@ -20,6 +22,8 @@ import RFQ from './pages/RFQ';
 import ItemMaster from './pages/ItemMaster';
 import WorkflowEngine from './pages/WorkflowEngine';
 import DocumentCenter from './pages/DocumentCenter';
+import PR from './pages/PR';
+import Contracts from './pages/Contracts';
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem('vendor_token');
@@ -27,32 +31,47 @@ function RequireAuth({ children }) {
   return children;
 }
 
+// VAPT: defense-in-depth route guard. The real access-control boundary is the
+// backend's requireRole() on every endpoint — this just stops a logged-in user
+// from one role rendering another role's page (and firing its data requests)
+// by typing the URL directly, instead of relying solely on the sidebar hiding links.
+function RequireRole({ roles, children }) {
+  const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
+  if (!roles.includes(user.role)) return <Navigate to="/" replace />;
+  return children;
+}
+
+const ALL_ROLES = ['system_admin', 'mdm_admin', 'procurement_admin', 'vendor'];
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<RequireAuth><AppLayout /></RequireAuth>}>
+        <Route path="/" element={<RequireAuth><FieldConfigProvider><AppLayout /></FieldConfigProvider></RequireAuth>}>
           <Route index element={<Dashboard />} />
-          <Route path="vendors" element={<Vendors />} />
-          <Route path="asns" element={<ASNs />} />
-          <Route path="vendor-asns" element={<ASNs />} />
-          <Route path="sub-masters" element={<SubMasters />} />
-          <Route path="vendor-onboarding" element={<VendorOnboarding />} />
-          <Route path="change-password" element={<ChangePassword />} />
-          <Route path="purchase-orders" element={<PurchaseOrders />} />
-          <Route path="extraction-config" element={<ExtractionConfig />} />
-          <Route path="user-management" element={<UserManagement />} />
-          <Route path="system-settings" element={<SystemSettings />} />
-          <Route path="audit" element={<AuditManagement />} />
-          <Route path="tickets" element={<Tickets />} />
-          <Route path="risk" element={<RiskDashboard />} />
-          <Route path="esg" element={<ESGTracking />} />
-          <Route path="pricing" element={<PriceBenchmarking />} />
-          <Route path="rfq" element={<RFQ />} />
-          <Route path="item-master" element={<ItemMaster />} />
-          <Route path="workflow-engine" element={<WorkflowEngine />} />
-          <Route path="documents" element={<DocumentCenter />} />
+          <Route path="vendors" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><Vendors /></RequireRole>} />
+          <Route path="asns" element={<RequireRole roles={['mdm_admin', 'procurement_admin', 'vendor']}><ASNs /></RequireRole>} />
+          <Route path="vendor-asns" element={<RequireRole roles={['mdm_admin', 'procurement_admin', 'vendor']}><ASNs /></RequireRole>} />
+          <Route path="sub-masters" element={<RequireRole roles={['mdm_admin']}><SubMasters /></RequireRole>} />
+          <Route path="procurement-sub-masters" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><ProcurementSubMasters /></RequireRole>} />
+          <Route path="vendor-onboarding" element={<RequireRole roles={['vendor']}><VendorOnboarding /></RequireRole>} />
+          <Route path="change-password" element={<RequireRole roles={ALL_ROLES}><ChangePassword /></RequireRole>} />
+          <Route path="purchase-orders" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><PurchaseOrders /></RequireRole>} />
+          <Route path="extraction-config" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><ExtractionConfig /></RequireRole>} />
+          <Route path="user-management" element={<RequireRole roles={['mdm_admin', 'system_admin']}><UserManagement /></RequireRole>} />
+          <Route path="system-settings" element={<RequireRole roles={['system_admin', 'mdm_admin']}><SystemSettings /></RequireRole>} />
+          <Route path="audit" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><AuditManagement /></RequireRole>} />
+          <Route path="tickets" element={<RequireRole roles={['mdm_admin', 'procurement_admin', 'vendor']}><Tickets /></RequireRole>} />
+          <Route path="risk" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><RiskDashboard /></RequireRole>} />
+          <Route path="esg" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><ESGTracking /></RequireRole>} />
+          <Route path="pricing" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><PriceBenchmarking /></RequireRole>} />
+          <Route path="purchase-requisitions" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><PR /></RequireRole>} />
+          <Route path="contracts" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><Contracts /></RequireRole>} />
+          <Route path="rfq" element={<RequireRole roles={['mdm_admin', 'procurement_admin', 'vendor']}><RFQ /></RequireRole>} />
+          <Route path="item-master" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><ItemMaster /></RequireRole>} />
+          <Route path="workflow-engine" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><WorkflowEngine /></RequireRole>} />
+          <Route path="documents" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><DocumentCenter /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

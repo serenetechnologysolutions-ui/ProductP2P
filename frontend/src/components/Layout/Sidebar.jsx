@@ -6,6 +6,7 @@ import {
   SettingOutlined, UserOutlined, SolutionOutlined, AuditOutlined,
   AlertOutlined, SafetyOutlined, GlobalOutlined, DollarOutlined,
   ReconciliationOutlined, ApartmentOutlined, FolderOpenOutlined,
+  FileTextOutlined, FileDoneOutlined,
 } from '@ant-design/icons';
 
 export default function Sidebar() {
@@ -53,10 +54,13 @@ export default function Sidebar() {
       { key: '/sub-masters', icon: <DatabaseOutlined />, label: 'Sub Masters' },
     ]},
     { key: 'procurement-mgmt', icon: <FileProtectOutlined />, label: 'Procurement', children: [
+      { key: '/purchase-requisitions', icon: <FileTextOutlined />, label: 'Purchase Requisitions' },
       { key: '/rfq', icon: <ReconciliationOutlined />, label: 'RFQ & Negotiation' },
       { key: '/item-master', icon: <DatabaseOutlined />, label: 'Item Master' },
+      { key: '/contracts', icon: <FileDoneOutlined />, label: 'Contracts' },
       { key: '/asns', icon: <FileProtectOutlined />, label: 'ASNs' },
       { key: '/purchase-orders', icon: <SolutionOutlined />, label: 'Purchase Orders' },
+      { key: '/procurement-sub-masters', icon: <DatabaseOutlined />, label: 'Sub Masters' },
       { key: '/extraction-config', icon: <SettingOutlined />, label: 'Extraction Config' },
     ]},
     advancedMenuGroup,
@@ -70,10 +74,13 @@ export default function Sidebar() {
   const procurementItems = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: 'procurement-mgmt', icon: <FileProtectOutlined />, label: 'Procurement', children: [
+      { key: '/purchase-requisitions', icon: <FileTextOutlined />, label: 'Purchase Requisitions' },
       { key: '/rfq', icon: <ReconciliationOutlined />, label: 'RFQ & Negotiation' },
       { key: '/item-master', icon: <DatabaseOutlined />, label: 'Item Master' },
+      { key: '/contracts', icon: <FileDoneOutlined />, label: 'Contracts' },
       { key: '/asns', icon: <FileProtectOutlined />, label: 'ASNs' },
       { key: '/purchase-orders', icon: <SolutionOutlined />, label: 'Purchase Orders' },
+      { key: '/procurement-sub-masters', icon: <DatabaseOutlined />, label: 'Sub Masters' },
       { key: '/extraction-config', icon: <SettingOutlined />, label: 'Extraction Config' },
     ]},
     { key: '/vendors', icon: <ShopOutlined />, label: 'Vendors' },
@@ -101,7 +108,7 @@ export default function Sidebar() {
 
   const PATH_TO_GROUP = {
     '/vendors': 'vendor-mgmt', '/sub-masters': 'vendor-mgmt',
-    '/rfq': 'procurement-mgmt', '/item-master': 'procurement-mgmt', '/asns': 'procurement-mgmt', '/purchase-orders': 'procurement-mgmt', '/extraction-config': 'procurement-mgmt',
+    '/purchase-requisitions': 'procurement-mgmt', '/rfq': 'procurement-mgmt', '/item-master': 'procurement-mgmt', '/contracts': 'procurement-mgmt', '/asns': 'procurement-mgmt', '/purchase-orders': 'procurement-mgmt', '/procurement-sub-masters': 'procurement-mgmt', '/extraction-config': 'procurement-mgmt',
     '/change-password': 'settings', '/user-management': 'settings',
     '/audit': 'advanced', '/tickets': 'advanced', '/risk': 'advanced', '/esg': 'advanced', '/pricing': 'advanced',
     '/workflow-engine': 'governance', '/documents': 'governance',
