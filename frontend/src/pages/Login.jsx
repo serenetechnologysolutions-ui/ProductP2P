@@ -7,10 +7,13 @@ import api from '../api/axios';
 const { Title, Text } = Typography;
 
 const DEMO_CREDENTIALS = [
-  { role: 'System Admin', email: 'sysadmin@procuretrack.com', password: 'SysAdmin@123', color: 'red' },
-  { role: 'MDM Admin', email: 'admin@vendorportal.com', password: 'Admin@123', color: 'blue' },
-  { role: 'Procurement Admin', email: 'procurement@vendorportal.com', password: 'Proc@123', color: 'purple' },
-  { role: 'Vendor', email: 'vendor1@tatasteel.com', password: 'Vendor@123', color: 'green' },
+  { role: 'System Admin', email: 'sysadmin@procuretrack.com', password: 'SysAdmin@123', color: 'red', company: 'All Companies' },
+  { role: 'MDM Admin', email: 'mdm@jc.com', password: 'Raja%$321', color: 'blue', company: 'Jasmine Concrete' },
+  { role: 'MDM Admin', email: 'mdm@se.com', password: 'Raja%$321', color: 'blue', company: 'Shanti Electricals' },
+  { role: 'Procurement', email: 'procurementadmin@jc.com', password: 'Raja%$321', color: 'purple', company: 'Jasmine Concrete' },
+  { role: 'Procurement', email: 'procurementadmin@se.com', password: 'Raja%$321', color: 'purple', company: 'Shanti Electricals' },
+  { role: 'Vendor (L&T)', email: 'L&T@jc.com', password: 'Raja%$321', color: 'green', company: 'L&T' },
+  { role: 'Vendor (Siemens)', email: 'siemens@siemens.com', password: 'Raja%$321', color: 'green', company: 'Siemens' },
 ];
 
 export default function Login() {
@@ -72,11 +75,13 @@ export default function Login() {
             <Table size="small" dataSource={DEMO_CREDENTIALS} rowKey="email" pagination={false}
               onRow={(record) => ({ onClick: () => quickLogin(record), style: { cursor: 'pointer' } })}
               columns={[
-                { title: 'Role', dataIndex: 'role', width: 140, render: (v, r) => <Tag color={r.color}>{v}</Tag> },
+                { title: 'Company', dataIndex: 'company', width: 130, render: v => <Text style={{ fontSize: 11 }}>{v}</Text> },
+                { title: 'Role', dataIndex: 'role', width: 130, render: (v, r) => <Tag color={r.color}>{v}</Tag> },
                 { title: 'Email', dataIndex: 'email', render: v => <Text copyable style={{ fontSize: 12 }}>{v}</Text> },
-                { title: 'Password', dataIndex: 'password', render: v => <Text code style={{ fontSize: 11 }}>{v}</Text> },
+                { title: 'Password', dataIndex: 'password', width: 110, render: v => <Text code style={{ fontSize: 11 }}>{v}</Text> },
               ]}
             />
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>Create more users via System Admin → User Management</Text>
           </Card>
         </div>
       </div>

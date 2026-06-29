@@ -1,11 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Form, Input, InputNumber, Button, Steps, Row, Col, Card, Typography, Divider, Select, Upload, Checkbox, Space, message } from 'antd';
+import { Form, Input, InputNumber, Button, Steps, Row, Col, Card, Typography, Divider, Select, Upload, Checkbox, Space, message, Alert } from 'antd';
 import { PlusOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../api/axios';
 import { useFieldConfig } from '../contexts/FieldConfigContext';
 import { API_BASE_URL } from '../config';
+import PageHeader from '../components/ui/PageHeader';
 
 const { Title, Text } = Typography;
+const STATUS_ALERT = {
+  draft: { type: 'info', message: 'Profile in progress', description: 'Fill in all sections and submit once your details and documents are ready.' },
+  submitted: { type: 'warning', message: 'Submitted — awaiting review', description: 'Your profile is being reviewed. You can still update details, but resubmission is only needed if asked.' },
+  under_review: { type: 'warning', message: 'Under review', description: 'An admin is reviewing your profile.' },
+  approved: { type: 'success', message: 'Approved', description: 'Your vendor profile is approved and active.' },
+  rejected: { type: 'error', message: 'Rejected', description: 'Your profile was rejected — review the remarks from your administrator, update your details, and resubmit.' },
+};
 
 export default function VendorOnboarding() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -47,7 +55,29 @@ export default function VendorOnboarding() {
     })();
   }, []);
 
+  // Mirrors the backend's own validateAddressRows/validateBankAccountRows
+  // (vendor.routes.js) — addresses/bank accounts are plain state-bound rows,
+  // not AntD Form.Items, so nothing here previously stopped an incomplete
+  // row (e.g. a bank account with no City/State) from being submitted; it
+  // only failed once it reached the server's NOT NULL columns.
+  const validateAddressAndBankRows = () => {
+    const addrRequired = ['line1', 'city', 'state', 'country', 'pin_code'];
+    const addrLabels = { line1: 'Address Line 1', city: 'City', state: 'State', country: 'Country', pin_code: 'PIN Code' };
+    for (let i = 0; i < addresses.length; i++) {
+      const missing = addrRequired.filter(f => !addresses[i][f]);
+      if (missing.length > 0) { message.error(`Address ${i + 1} is missing: ${missing.map(f => addrLabels[f]).join(', ')}`); return false; }
+    }
+    const bankRequired = ['ifsc_code', 'account_number', 'account_holder_name', 'bank_name', 'branch', 'city', 'state', 'country'];
+    const bankLabels = { ifsc_code: 'IFSC Code', account_number: 'Account Number', account_holder_name: 'Account Holder', bank_name: 'Bank Name', branch: 'Branch', city: 'City', state: 'State', country: 'Country' };
+    for (let i = 0; i < bankAccounts.length; i++) {
+      const missing = bankRequired.filter(f => !bankAccounts[i][f]);
+      if (missing.length > 0) { message.error(`Bank account ${i + 1} is missing: ${missing.map(f => bankLabels[f]).join(', ')}`); return false; }
+    }
+    return true;
+  };
+
   const handleSubmit = async () => {
+    if (!validateAddressAndBankRows()) return;
     setLoading(true);
     try {
       // Save all data first
@@ -78,11 +108,16 @@ export default function VendorOnboarding() {
     { title: 'Contacts' },
   ];
 
+  const statusAlert = vendor ? STATUS_ALERT[vendor.status] : null;
+
   return (
-    <div>
-      <Title level={4}>My Profile</Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Complete your business information, addresses, bank details, and upload required documents. Submit for admin approval once all details are filled.</Text>
-      {vendor && <Text type="secondary">Status: <strong>{vendor.status?.toUpperCase().replace('_', ' ')}</strong></Text>}
+    <div style={{ padding: '24px' }}>
+      <PageHeader
+        items={[{ title: 'Vendor' }, { title: 'My Profile' }]}
+        title="My Profile"
+        subtitle="Complete your business information, addresses, bank details, and upload required documents. Submit for admin approval once all details are filled."
+      />
+      {statusAlert && <Alert type={statusAlert.type} showIcon message={statusAlert.message} description={statusAlert.description} style={{ marginBottom: 16 }} />}
       <Card size="small" style={{ margin: '16px 0' }}>
         <Steps current={currentStep} items={steps} onChange={setCurrentStep} size="small" />
       </Card>

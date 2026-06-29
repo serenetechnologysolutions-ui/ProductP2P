@@ -32,7 +32,7 @@ async function seedDropdownSubMasters() {
       { category: 'priority', name: 'Low' },
       { category: 'priority', name: 'Medium' },
       { category: 'priority', name: 'High' },
-      { category: 'priority', name: 'Urgent' },
+      { category: 'priority', name: 'Critical' },
 
       { category: 'account_assignment_category', name: 'Cost Center' },
       { category: 'account_assignment_category', name: 'Asset' },

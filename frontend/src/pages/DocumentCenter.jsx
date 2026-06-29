@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, Select, DatePicker, Tag, Space, Card, Typography, Drawer, Upload, message, Row, Col } from 'antd';
-import { UploadOutlined, SearchOutlined, ClearOutlined, CheckOutlined, CloseOutlined, InboxOutlined } from '@ant-design/icons';
+import { Table, Button, Form, Input, Select, DatePicker, Tag, Space, Card, Typography, Upload, message, Row, Col, Statistic, Alert } from 'antd';
+import { UploadOutlined, SearchOutlined, ClearOutlined, CheckOutlined, CloseOutlined, InboxOutlined, FileTextOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
 import { useFieldConfig } from '../contexts/FieldConfigContext';
 import { API_BASE_URL } from '../config';
+import InlineExpandPanel from '../components/ui/InlineExpandPanel';
+import PageHeader from '../components/ui/PageHeader';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const MODULE_OPTIONS = ['vendor', 'purchase_requisition', 'purchase_order', 'asn', 'rfq', 'ticket', 'audit', 'esg'].map(m => ({ value: m, label: m.replace('_', ' ').toUpperCase() }));
 const STATUS_COLOR = { pending: 'default', verified: 'green', rejected: 'red' };
@@ -40,7 +42,7 @@ export default function DocumentCenter() {
   const handleSearch = () => fetchData(filters);
   const handleClear = () => { const cleared = { module_name: undefined, record_id: '', document_group_id: '' }; setFilters(cleared); fetchData(cleared); };
 
-  const openUploadModal = () => { form.resetFields(); setUploadFile(null); setUploadModalOpen(true); };
+  const openUploadModal = () => { form.resetFields(); setUploadFile(null); setUploadModalOpen(o => !o); };
   const closeUploadModal = () => { setUploadModalOpen(false); setUploadFile(null); };
 
   const handleUpload = async () => {
@@ -75,13 +77,23 @@ export default function DocumentCenter() {
   };
 
   const columns = [
-    { title: 'File Name', dataIndex: 'file_name', render: (v, r) => <a href={`${API_BASE_URL}/uploads/${r.file_url?.split(/[\\/]/).pop()}`} target="_blank" rel="noreferrer">{v}</a> },
-    { title: 'Module', dataIndex: 'module_name', width: 120, render: v => <Tag color="blue">{v}</Tag> },
+    { title: 'File Name', dataIndex: 'file_name', render: (v, r) => <a href={`${API_BASE_URL}/uploads/${r.file_url?.split(/[\\/]/).pop()}`} target="_blank" rel="noreferrer">{v}</a>, sorter: (a, b) => String(a.file_name || '').localeCompare(String(b.file_name || '')) },
+    {
+      title: 'Module', dataIndex: 'module_name', width: 120, render: v => <Tag color="blue">{v}</Tag>,
+      sorter: (a, b) => String(a.module_name || '').localeCompare(String(b.module_name || '')),
+      filters: [...new Set((data || []).map(d => d.module_name).filter(Boolean))].map(v => ({ text: v, value: v })),
+      onFilter: (value, row) => row.module_name === value,
+    },
     { title: 'Record ID', dataIndex: 'record_id', width: 200, ellipsis: true, render: v => v || <Text type="secondary">—</Text> },
-    { title: 'File Type', dataIndex: 'file_type', width: 110, render: v => v || <Text type="secondary">—</Text> },
-    { title: 'Uploaded At', dataIndex: 'uploaded_at', width: 170, render: v => v ? new Date(v).toLocaleString() : '—' },
-    { title: 'Expiry', dataIndex: 'expiry_date', width: 110, render: v => v ? dayjs(v).format('YYYY-MM-DD') : <Text type="secondary">—</Text> },
-    { title: 'Status', dataIndex: 'verification_status', width: 110, render: v => <Tag color={STATUS_COLOR[v]}>{(v || 'pending').toUpperCase()}</Tag> },
+    { title: 'File Type', dataIndex: 'file_type', width: 110, render: v => v || <Text type="secondary">—</Text>, sorter: (a, b) => String(a.file_type || '').localeCompare(String(b.file_type || '')) },
+    { title: 'Uploaded At', dataIndex: 'uploaded_at', width: 170, render: v => v ? new Date(v).toLocaleString() : '—', sorter: (a, b) => new Date(a.uploaded_at || 0) - new Date(b.uploaded_at || 0) },
+    { title: 'Expiry', dataIndex: 'expiry_date', width: 110, render: v => v ? dayjs(v).format('YYYY-MM-DD') : <Text type="secondary">—</Text>, sorter: (a, b) => new Date(a.expiry_date || 0) - new Date(b.expiry_date || 0) },
+    {
+      title: 'Status', dataIndex: 'verification_status', width: 110, render: v => <Tag color={STATUS_COLOR[v]}>{(v || 'pending').toUpperCase()}</Tag>,
+      sorter: (a, b) => String(a.verification_status || '').localeCompare(String(b.verification_status || '')),
+      filters: Object.keys(STATUS_COLOR).map(v => ({ text: v.toUpperCase(), value: v })),
+      onFilter: (value, row) => (row.verification_status || 'pending') === value,
+    },
     {
       title: 'Actions', width: 120, render: (_, record) => (
         record.verification_status === 'pending' ? (
@@ -94,13 +106,27 @@ export default function DocumentCenter() {
     },
   ];
 
+  const pendingCount = data.filter(d => (d.verification_status || 'pending') === 'pending').length;
+  const expiringSoonCount = data.filter(d => d.expiry_date && dayjs(d.expiry_date).diff(dayjs(), 'day') >= 0 && dayjs(d.expiry_date).diff(dayjs(), 'day') <= 30).length;
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <Title level={4} style={{ margin: 0 }}>Document Center</Title>
-        <Button type="primary" icon={<UploadOutlined />} onClick={openUploadModal}>Upload Document</Button>
-      </div>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Generic document storage for modules without dedicated upload flows — tickets, audit evidence, ESG certificates, and more.</Text>
+    <div style={{ padding: '24px' }}>
+      <PageHeader
+        items={[{ title: 'Administration' }, { title: 'Document Center' }]}
+        title="Document Center"
+        subtitle="Generic document storage for modules without dedicated upload flows — tickets, audit evidence, ESG certificates, and more."
+        extra={<Button type="primary" icon={<UploadOutlined />} onClick={openUploadModal}>Upload Document</Button>}
+      />
+
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={8}><Card size="small"><Statistic title="Total Documents" value={data.length} prefix={<FileTextOutlined />} /></Card></Col>
+        <Col span={8}><Card size="small"><Statistic title="Pending Verification" value={pendingCount} valueStyle={pendingCount > 0 ? { color: '#d48806' } : undefined} /></Card></Col>
+        <Col span={8}><Card size="small"><Statistic title="Expiring Within 30 Days" value={expiringSoonCount} valueStyle={expiringSoonCount > 0 ? { color: '#cf1322' } : undefined} /></Card></Col>
+      </Row>
+
+      {pendingCount > 0 && (
+        <Alert style={{ marginBottom: 16 }} type="warning" showIcon message={`${pendingCount} document(s) awaiting verification`} />
+      )}
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Row gutter={12} align="middle">
@@ -125,9 +151,14 @@ export default function DocumentCenter() {
         </Row>
       </Card>
 
-      <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle" pagination={{ pageSize: 20 }} />
-
-      <Drawer title="Upload Document" open={uploadModalOpen} onClose={closeUploadModal} width={480} destroyOnClose>
+      <InlineExpandPanel
+        open={uploadModalOpen}
+        title="Upload Document"
+        onCancel={closeUploadModal}
+        onSubmit={handleUpload}
+        submitText="Upload"
+        loading={uploading}
+      >
         <Upload.Dragger
           maxCount={1}
           beforeUpload={(file) => { setUploadFile(file); return false; }}
@@ -167,14 +198,9 @@ export default function DocumentCenter() {
             </Col>
           </Row>
         </Form>
+      </InlineExpandPanel>
 
-        <div style={{ marginTop: 8, textAlign: 'right' }}>
-          <Space>
-            <Button onClick={closeUploadModal}>Cancel</Button>
-            <Button type="primary" icon={<UploadOutlined />} loading={uploading} onClick={handleUpload}>Upload</Button>
-          </Space>
-        </div>
-      </Drawer>
+      <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle" pagination={{ pageSize: 20 }} />
     </div>
   );
 }

@@ -86,9 +86,17 @@ async function seed() {
           'INSERT INTO vendors (id, vendor_number, vendor_name, email, phone, company_name, department, supplier_group, supplier_category, supplier_location, status, gst_number, pan_number, trade_name, legal_name, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [vid, vnum, v.name, v.email, v.phone, v.company, v.dept, v.group, v.category, v.location, v.status, v.gst, v.pan, v.name, v.name + ' Pvt Ltd', adminId]
         );
-        // Create vendor user account
-        const hash = await bcrypt.hash('Vendor@123', 10);
-        await conn.query('INSERT INTO users (id, email, password_hash, role, vendor_id, must_reset_password, full_name) VALUES (?, ?, ?, ?, ?, ?, ?)', [uuidv4(), v.email, hash, 'vendor', vid, false, v.name]);
+        // Create vendor user account — or, if a login with this email
+        // already exists (e.g. vendors was truncated/reseeded but users
+        // wasn't), repoint it at the freshly (re)created vendor row instead
+        // of trying to insert a second account with the same email.
+        const [existingUser] = await conn.query('SELECT id FROM users WHERE email = ?', [v.email]);
+        if (existingUser.length === 0) {
+          const hash = await bcrypt.hash('Vendor@123', 10);
+          await conn.query('INSERT INTO users (id, email, password_hash, role, vendor_id, must_reset_password, full_name) VALUES (?, ?, ?, ?, ?, ?, ?)', [uuidv4(), v.email, hash, 'vendor', vid, false, v.name]);
+        } else {
+          await conn.query('UPDATE users SET vendor_id = ? WHERE id = ?', [vid, existingUser[0].id]);
+        }
 
         // Add addresses for approved vendors
         if (v.status === 'approved') {

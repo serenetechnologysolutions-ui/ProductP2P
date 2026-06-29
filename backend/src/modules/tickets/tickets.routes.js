@@ -4,6 +4,7 @@ const { pool } = require('../../config/database');
 const { asyncHandler } = require('../../common/middleware');
 const { ValidationError, NotFoundError } = require('../../common/errors');
 const { authenticate, requireRole } = require('../auth/auth.middleware');
+const { withTransaction } = require('../../common/db');
 
 const router = express.Router();
 
@@ -48,25 +49,27 @@ router.post('/', authenticate, requireRole('procurement_admin', 'mdm_admin'), as
   const ticketNumber = `TKT-${String(nextNum).padStart(5, '0')}`;
 
   const ticketId = uuidv4();
-  if (sla_hours) {
-    await pool.query(
-      'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by, category, sla_due_date) VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR))',
-      [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id, category || null, sla_hours]
-    );
-  } else {
-    await pool.query(
-      'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by, category) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id, category || null]
-    );
-  }
+  await withTransaction(async (conn) => {
+    if (sla_hours) {
+      await conn.query(
+        'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by, category, sla_due_date) VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR))',
+        [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id, category || null, sla_hours]
+      );
+    } else {
+      await conn.query(
+        'INSERT INTO tickets (id, ticket_number, subject, description, priority, created_by, category) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [ticketId, ticketNumber, subject, description || null, priority || 'medium', req.user.id, category || null]
+      );
+    }
 
-  // Assign vendors
-  for (const vendorId of vendor_ids) {
-    await pool.query(
-      'INSERT INTO ticket_vendors (id, ticket_id, vendor_id) VALUES (?, ?, ?)',
-      [uuidv4(), ticketId, vendorId]
-    );
-  }
+    // Assign vendors
+    for (const vendorId of vendor_ids) {
+      await conn.query(
+        'INSERT INTO ticket_vendors (id, ticket_id, vendor_id) VALUES (?, ?, ?)',
+        [uuidv4(), ticketId, vendorId]
+      );
+    }
+  });
 
   res.status(201).json({ success: true, data: { id: ticketId, ticket_number: ticketNumber } });
 }));
@@ -149,21 +152,23 @@ router.put('/:id/vendors/:vendorId/close', authenticate, asyncHandler(async (req
   if (tv.length === 0) throw new NotFoundError('Ticket vendor assignment not found');
   if (tv[0].status === 'closed') throw new ValidationError('Already closed');
 
-  await pool.query(
-    "UPDATE ticket_vendors SET status = 'closed', remarks = ?, closed_at = NOW() WHERE ticket_id = ? AND vendor_id = ?",
-    [remarks, id, vendorId]
-  );
+  await withTransaction(async (conn) => {
+    await conn.query(
+      "UPDATE ticket_vendors SET status = 'closed', remarks = ?, closed_at = NOW() WHERE ticket_id = ? AND vendor_id = ?",
+      [remarks, id, vendorId]
+    );
 
-  // Check if all vendors closed — update ticket status to vendor_closed
-  const [[{ openCount }]] = await pool.query(
-    "SELECT COUNT(*) as openCount FROM ticket_vendors WHERE ticket_id = ? AND status = 'open'",
-    [id]
-  );
-  if (openCount === 0) {
-    await pool.query("UPDATE tickets SET status = 'vendor_closed' WHERE id = ?", [id]);
-  } else {
-    await pool.query("UPDATE tickets SET status = 'in_progress' WHERE id = ? AND status = 'initiated'", [id]);
-  }
+    // Check if all vendors closed — update ticket status to vendor_closed
+    const [[{ openCount }]] = await conn.query(
+      "SELECT COUNT(*) as openCount FROM ticket_vendors WHERE ticket_id = ? AND status = 'open'",
+      [id]
+    );
+    if (openCount === 0) {
+      await conn.query("UPDATE tickets SET status = 'vendor_closed' WHERE id = ?", [id]);
+    } else {
+      await conn.query("UPDATE tickets SET status = 'in_progress' WHERE id = ? AND status = 'initiated'", [id]);
+    }
+  });
 
   res.json({ success: true, message: 'Vendor ticket closed' });
 }));
@@ -181,10 +186,12 @@ router.put('/:id/reassign', authenticate, requireRole('procurement_admin', 'mdm_
   if (tickets.length === 0) throw new NotFoundError('Ticket not found');
 
   // Remove existing vendor assignments and re-assign
-  await pool.query('DELETE FROM ticket_vendors WHERE ticket_id = ?', [id]);
-  for (const vendorId of vendor_ids) {
-    await pool.query('INSERT INTO ticket_vendors (id, ticket_id, vendor_id) VALUES (?, ?, ?)', [uuidv4(), id, vendorId]);
-  }
+  await withTransaction(async (conn) => {
+    await conn.query('DELETE FROM ticket_vendors WHERE ticket_id = ?', [id]);
+    for (const vendorId of vendor_ids) {
+      await conn.query('INSERT INTO ticket_vendors (id, ticket_id, vendor_id) VALUES (?, ?, ?)', [uuidv4(), id, vendorId]);
+    }
+  });
 
   res.json({ success: true, message: 'Ticket reassigned' });
 }));

@@ -1,14 +1,31 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Tabs, Popconfirm, Typography, Divider, Statistic, Avatar, Drawer, Checkbox, Upload, Alert, message } from 'antd';
-import { PlusOutlined, ArrowLeftOutlined, EditOutlined, SearchOutlined, ClearOutlined, SaveOutlined, CheckOutlined, CloseOutlined, StopOutlined, DeleteOutlined, PlusCircleOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Tabs, Popconfirm, Typography, Divider, Statistic, Avatar, Checkbox, Upload, Alert, Empty, message } from 'antd';
+import { PlusOutlined, ArrowLeftOutlined, EditOutlined, SearchOutlined, ClearOutlined, SaveOutlined, CheckOutlined, CloseOutlined, StopOutlined, DeleteOutlined, PlusCircleOutlined, UploadOutlined, InboxOutlined, ZoomInOutlined, BulbOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
 import { useFieldConfig } from '../contexts/FieldConfigContext';
+import InlineExpandPanel from '../components/ui/InlineExpandPanel';
+import SmartAssistantPanel from '../components/SmartAssistantPanel';
+import PageHeader from '../components/ui/PageHeader';
+import { useFeatureFlag } from '../contexts/FeatureFlagsContext';
+import VendorCompanyMappings from '../components/VendorCompanyMappings';
+import CompanySelector from '../components/CompanySelector';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR = { draft: 'default', submitted: 'blue', under_review: 'orange', approved: 'green', rejected: 'red', inactive: '#8c8c8c' };
 const LIFECYCLE_COLOR = { onboarding: 'blue', active: 'green', dormant: 'gold', blocked: '#8c8c8c' };
 const RISK_COLOR = { low: 'green', medium: 'orange', high: 'red' };
+const SEGMENT_OPTIONS = [
+  { value: 'strategic', label: 'Strategic' },
+  { value: 'preferred', label: 'Preferred' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'tactical', label: 'Tactical' },
+];
+const SEGMENT_COLOR = { strategic: 'gold', preferred: 'blue', approved: 'default', tactical: 'orange' };
+const TREND_COLOR = { improving: 'green', stable: 'default', worsening: 'red' };
+const ACTION_LABEL = { replace_vendor: 'Replace Vendor', reduce_dependency: 'Reduce Dependency', trigger_audit: 'Trigger Audit' };
+const COMPLIANCE_DOC_STATUS_COLOR = { ok: 'green', expiring_soon: 'orange', expired: 'red' };
 
 function parseMaybeJson(value) {
   if (!value) return null;
@@ -17,24 +34,38 @@ function parseMaybeJson(value) {
 }
 
 export default function Vendors() {
+  const navigate = useNavigate();
+  const uiImprovementsEnabled = useFeatureFlag('ui_improvements_enabled');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
-  const [view, setView] = useState('list'); // list | detail | form | edit
+  const [view, setView] = useState('list'); // list | detail | form | edit — each a full page, navigated via the row's View action
   const [selected, setSelected] = useState(null);
   const [form] = Form.useForm();
   const [searchName, setSearchName] = useState('');
   const [rejectReason, setRejectReason] = useState('');
-  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectPanelOpen, setRejectPanelOpen] = useState(false);
   const [subMasters, setSubMasters] = useState({});
+  const [companies, setCompanies] = useState([]); // Procurement OS: for the optional "Internal Company" field below
   const [addresses, setAddresses] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
-  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importPanelOpen, setImportPanelOpen] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [complianceDates, setComplianceDates] = useState([]);
-  const { isRequired } = useFieldConfig('vendor');
+  const [vendorSummary, setVendorSummary] = useState(null);
+  const [vendorSummaryLoading, setVendorSummaryLoading] = useState(false);
+
+  // Vendor Intelligence Panel — compliance status (computed, not just the
+  // raw expiry-date editor) + ProcurementInsightsService.getVendorScore
+  // (risk trend, performance score, contract status, actionable insights).
+  const [compliance, setCompliance] = useState(null);
+  const [vendorScore, setVendorScore] = useState(null);
+  const [riskActions, setRiskActions] = useState([]);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(false);
+  const [intelligenceLoaded, setIntelligenceLoaded] = useState(false);
+  const { isRequired, isVisible } = useFieldConfig('vendor');
 
   const fetchData = useCallback(async (page = 1, pageSize = 10) => {
     setLoading(true);
@@ -52,20 +83,66 @@ export default function Vendors() {
   useEffect(() => {
     (async () => {
       try {
-        const cats = ['company', 'department', 'supplier_group', 'supplier_category', 'state', 'city', 'country', 'vendor_type', 'industry', 'registration_type', 'payment_terms', 'msme_type', 'currency'];
+        const cats = ['department', 'supplier_group', 'supplier_category', 'state', 'city', 'country', 'vendor_type', 'industry', 'registration_type', 'payment_terms', 'msme_type', 'currency'];
         const results = {};
         for (const cat of cats) { const res = await api.get(`/sub-masters/${cat}`); results[cat] = res.data.data || []; }
         setSubMasters(results);
       } catch (_) {}
     })();
+    api.get('/companies').then(res => setCompanies(res.data.data || [])).catch(() => {});
   }, []);
 
+  // Triggered by the row's View (zoom) action — navigates to the full-page detail view.
   const openDetail = async (record) => {
     try {
       const res = await api.get(`/vendors/${record.id}`);
       setSelected(res.data.data);
-      setView('detail');
-    } catch (_) { setSelected(record); setView('detail'); }
+    } catch (_) { setSelected(record); }
+    setView('detail');
+    setCompliance(null);
+    setVendorScore(null);
+    setIntelligenceLoaded(false);
+    fetchVendorSummary(record.id);
+  };
+
+  // Deep-link support — e.g. the Control Tower's "View Source" action lands
+  // here as /vendors?id=<vendor_id> and should jump straight to that record.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const deepLinkId = searchParams.get('id');
+    if (deepLinkId) openDetail({ id: deepLinkId });
+  }, []);
+
+  // Vendor 360 Profile — fetched separately from the main detail payload since
+  // it's a derived/computed view, not part of the vendor record itself.
+  const fetchVendorSummary = async (vendorId) => {
+    setVendorSummary(null);
+    setVendorSummaryLoading(true);
+    try {
+      const res = await api.get(`/vendors/${vendorId}/summary`);
+      setVendorSummary(res.data.data);
+    } catch (_) { /* non-critical — panel just stays empty */ }
+    setVendorSummaryLoading(false);
+  };
+
+  const fetchIntelligence = async (vendorId) => {
+    setIntelligenceLoading(true);
+    try {
+      const [complianceRes, scoreRes, actionsRes] = await Promise.all([
+        api.get(`/vendors/${vendorId}/compliance`),
+        api.get(`/insights/vendors/${vendorId}/score`),
+        api.get(`/vendors/${vendorId}/risk-actions`),
+      ]);
+      setCompliance(complianceRes.data.data);
+      setVendorScore(scoreRes.data.data);
+      setRiskActions(actionsRes.data.data || []);
+    } catch (_) { /* non-critical — panel just stays empty */ }
+    setIntelligenceLoading(false);
+    setIntelligenceLoaded(true);
+  };
+
+  const onDetailTabChange = (key) => {
+    if (key === 'intelligence' && !intelligenceLoaded && selected) fetchIntelligence(selected.id);
   };
 
   const openForm = () => { form.resetFields(); setSelected(null); setView('form'); };
@@ -80,7 +157,29 @@ export default function Vendors() {
     setView('edit');
   };
 
-  const goBack = () => { setView('list'); setSelected(null); setAddresses([]); setBankAccounts([]); setComplianceDates([]); };
+  const goBack = () => { setView('list'); setSelected(null); setVendorSummary(null); setAddresses([]); setBankAccounts([]); setComplianceDates([]); setCompliance(null); setVendorScore(null); setRiskActions([]); setIntelligenceLoaded(false); };
+
+  // Mirrors the backend's own validateAddressRows/validateBankAccountRows
+  // (vendor.routes.js) — addresses/bank accounts are plain state-bound rows,
+  // not AntD Form.Items, so form.validateFields() never sees them. Without
+  // this, an incomplete row (e.g. bank account missing City/State) only
+  // failed once it reached the server's NOT NULL columns, as an opaque
+  // error after the user had already clicked Save.
+  const validateAddressAndBankRows = () => {
+    const addrRequired = ['line1', 'city', 'state', 'country', 'pin_code'];
+    const addrLabels = { line1: 'Address Line 1', city: 'City', state: 'State', country: 'Country', pin_code: 'PIN Code' };
+    for (let i = 0; i < addresses.length; i++) {
+      const missing = addrRequired.filter(f => !addresses[i][f]);
+      if (missing.length > 0) { message.error(`Address ${i + 1} is missing: ${missing.map(f => addrLabels[f]).join(', ')}`); return false; }
+    }
+    const bankRequired = ['ifsc_code', 'account_number', 'account_holder_name', 'bank_name', 'branch', 'city', 'state', 'country'];
+    const bankLabels = { ifsc_code: 'IFSC Code', account_number: 'Account Number', account_holder_name: 'Account Holder', bank_name: 'Bank Name', branch: 'Branch', city: 'City', state: 'State', country: 'Country' };
+    for (let i = 0; i < bankAccounts.length; i++) {
+      const missing = bankRequired.filter(f => !bankAccounts[i][f]);
+      if (missing.length > 0) { message.error(`Bank account ${i + 1} is missing: ${missing.map(f => bankLabels[f]).join(', ')}`); return false; }
+    }
+    return true;
+  };
 
   const handleCreate = async () => {
     try {
@@ -94,6 +193,7 @@ export default function Vendors() {
   const handleUpdate = async () => {
     try {
       const values = await form.validateFields();
+      if (!validateAddressAndBankRows()) return;
       const compliance_expiry_dates = complianceDates.reduce((acc, c) => { if (c.label) acc[c.label] = c.expiry_date ? dayjs(c.expiry_date).format('YYYY-MM-DD') : null; return acc; }, {});
       await api.put(`/vendors/${selected.id}`, { ...values, addresses, bank_accounts: bankAccounts, compliance_expiry_dates });
       message.success('Vendor updated');
@@ -111,7 +211,7 @@ export default function Vendors() {
       if (action === 'reject') {
         if (!rejectReason.trim()) { message.error('Reason is required'); return; }
         await api.post(`/vendors/${selected.id}/reject`, { reason: rejectReason });
-        setRejectModalOpen(false); setRejectReason('');
+        setRejectPanelOpen(false); setRejectReason('');
       } else if (action === 'approve') { await api.post(`/vendors/${selected.id}/approve`); }
       else if (action === 'review') { await api.post(`/vendors/${selected.id}/review`); }
       else if (action === 'deactivate') { await api.put(`/vendors/${selected.id}/deactivate`); }
@@ -126,7 +226,7 @@ export default function Vendors() {
     try {
       await api.delete(`/vendors/${vendorId}`);
       message.success('Vendor deleted');
-      if (view === 'detail') goBack();
+      if (selected?.id === vendorId) goBack();
       fetchData(pagination.current, pagination.pageSize);
     } catch (err) { message.error(err.response?.data?.message || 'Delete failed — vendor may have existing transactions'); }
   };
@@ -145,7 +245,7 @@ export default function Vendors() {
     setImporting(false);
   };
 
-  const closeImportModal = () => { setImportModalOpen(false); setImportFile(null); setImportResult(null); };
+  const closeImportPanel = () => { setImportPanelOpen(false); setImportFile(null); setImportResult(null); };
 
   // Address helpers
   const addAddress = () => setAddresses([...addresses, { line1: '', line2: '', city: '', state: '', country: 'India', pin_code: '', tags: [] }]);
@@ -157,46 +257,85 @@ export default function Vendors() {
   const removeBank = (i) => setBankAccounts(bankAccounts.filter((_, idx) => idx !== i));
   const updateBank = (i, field, value) => setBankAccounts(bankAccounts.map((b, idx) => idx === i ? { ...b, [field]: value } : b));
 
-  // ─── LIST VIEW ───
+  // ─── LIST VIEW (full page — View action navigates to the detail page) ───
   if (view === 'list') {
     const columns = [
-      { title: 'Name', dataIndex: 'vendor_name', render: (t) => <Space><Avatar size="small" style={{ background: '#1890ff' }}>{t?.[0]}</Avatar><Text strong>{t}</Text></Space> },
-      { title: 'Company', dataIndex: 'company_name' },
-      { title: 'Category', dataIndex: 'supplier_category', render: v => v ? <Tag color="blue">{v}</Tag> : '—' },
-      { title: 'Email', dataIndex: 'email' },
-      { title: 'Status', dataIndex: 'status', width: 120, render: s => <Tag color={STATUS_COLOR[s]}>{s?.toUpperCase().replace('_', ' ')}</Tag> },
-      { title: 'Lifecycle', dataIndex: 'lifecycle_stage', width: 110, render: s => s ? <Tag color={LIFECYCLE_COLOR[s]}>{s.toUpperCase()}</Tag> : '—' },
-      { title: 'Risk', dataIndex: 'risk_category', width: 90, render: r => r ? <Tag color={RISK_COLOR[r]}>{r.toUpperCase()}</Tag> : '—' },
       {
-        title: 'Actions', width: 80, render: (_, record) => (
-          <Popconfirm title="Delete this vendor?" description="This cannot be undone." onConfirm={(e) => { e?.stopPropagation?.(); handleDelete(record.id); }} onCancel={(e) => e?.stopPropagation?.()}>
-            <Button icon={<DeleteOutlined />} size="small" danger onClick={e => e.stopPropagation()} />
-          </Popconfirm>
+        title: 'Name', dataIndex: 'vendor_name', width: 180, ellipsis: true, render: (t) => <Space style={{ maxWidth: '100%', overflow: 'hidden' }}><Avatar size="small" style={{ background: '#1890ff', flexShrink: 0 }}>{t?.[0]}</Avatar><Text strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</Text></Space>,
+        sorter: (a, b) => String(a.vendor_name || '').localeCompare(String(b.vendor_name || '')),
+      },
+      { title: 'Company', dataIndex: 'company_name', width: 150, ellipsis: true, sorter: (a, b) => String(a.company_name || '').localeCompare(String(b.company_name || '')) },
+      {
+        title: 'Category', dataIndex: 'supplier_category', width: 120, render: v => v ? <Tag color="blue">{v}</Tag> : '—',
+        sorter: (a, b) => String(a.supplier_category || '').localeCompare(String(b.supplier_category || '')),
+      },
+      { title: 'Email', dataIndex: 'email', width: 200, ellipsis: true, sorter: (a, b) => String(a.email || '').localeCompare(String(b.email || '')) },
+      {
+        title: 'Status', dataIndex: 'status', width: 120, render: s => <Tag color={STATUS_COLOR[s]}>{s?.toUpperCase().replace('_', ' ')}</Tag>,
+        sorter: (a, b) => String(a.status || '').localeCompare(String(b.status || '')),
+        filters: Object.keys(STATUS_COLOR).map(v => ({ text: v.toUpperCase().replace('_', ' '), value: v })),
+        onFilter: (value, row) => row.status === value,
+      },
+      {
+        title: 'Lifecycle', dataIndex: 'lifecycle_stage', width: 110, render: s => s ? <Tag color={LIFECYCLE_COLOR[s]}>{s.toUpperCase()}</Tag> : '—',
+        sorter: (a, b) => String(a.lifecycle_stage || '').localeCompare(String(b.lifecycle_stage || '')),
+        filters: Object.keys(LIFECYCLE_COLOR).map(v => ({ text: v.toUpperCase(), value: v })),
+        onFilter: (value, row) => row.lifecycle_stage === value,
+      },
+      {
+        title: 'Risk', dataIndex: 'risk_category', width: 90, render: r => r ? <Tag color={RISK_COLOR[r]}>{r.toUpperCase()}</Tag> : '—',
+        sorter: (a, b) => String(a.risk_category || '').localeCompare(String(b.risk_category || '')),
+        filters: Object.keys(RISK_COLOR).map(v => ({ text: v.toUpperCase(), value: v })),
+        onFilter: (value, row) => row.risk_category === value,
+      },
+      {
+        title: 'Actions', width: 100, fixed: 'right', render: (_, record) => (
+          <Space>
+            <Button icon={<ZoomInOutlined />} size="small" title="View" onClick={() => openDetail(record)} />
+            <Popconfirm title="Delete this vendor?" description="This cannot be undone." onConfirm={() => handleDelete(record.id)}>
+              <Button icon={<DeleteOutlined />} size="small" danger />
+            </Popconfirm>
+          </Space>
         ),
       },
     ];
+
+    const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
+    const canManageVendors = ['mdm_admin', 'system_admin'].includes(user.role);
+
+    const vendorListActions = canManageVendors ? (
+      <Space>
+        <Button icon={<UploadOutlined />} onClick={() => setImportPanelOpen(o => !o)}>Import Excel</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openForm}>Add Vendor</Button>
+      </Space>
+    ) : null;
     return (
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <Title level={4} style={{ margin: 0 }}>Vendor Master</Title>
-          <Space>
-            <Button icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>Import Excel</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openForm}>Add Vendor</Button>
-          </Space>
-        </div>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Manage vendor master data, onboarding workflows, and approval status. Create new vendors and track their lifecycle.</Text>
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Row gutter={12} align="middle">
-            <Col flex="1"><Input placeholder="Search by Name" value={searchName} onChange={e => setSearchName(e.target.value)} onPressEnter={() => fetchData()} allowClear /></Col>
-            <Col><Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData()}>Search</Button></Col>
-            <Col><Button icon={<ClearOutlined />} onClick={() => { setSearchName(''); fetchData(); }}>Clear</Button></Col>
-          </Row>
-        </Card>
-        <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle"
-          pagination={{ ...pagination, showSizeChanger: true, showTotal: t => `${t} vendors`, onChange: (p, ps) => fetchData(p, ps) }}
-          onRow={(record) => ({ onClick: () => openDetail(record), style: { cursor: 'pointer' } })} />
+        {uiImprovementsEnabled ? (
+          <PageHeader
+            items={[{ title: 'Vendor Management' }, { title: 'Vendors' }]}
+            title="Vendor Master"
+            subtitle="Manage vendor master data, onboarding workflows, and approval status. Create new vendors and track their lifecycle."
+            extra={vendorListActions}
+          />
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Title level={4} style={{ margin: 0 }}>Vendor Master</Title>
+              {vendorListActions}
+            </div>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Manage vendor master data, onboarding workflows, and approval status. Create new vendors and track their lifecycle.</Text>
+          </>
+        )}
 
-        <Drawer title="Import Vendors from Excel" open={importModalOpen} onClose={closeImportModal} width={480} destroyOnClose>
+        <InlineExpandPanel
+          open={importPanelOpen}
+          title="Import Vendors from Excel"
+          onCancel={closeImportPanel}
+          onSubmit={handleImport}
+          submitText="Upload & Import"
+          loading={importing}
+        >
           <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
             File must have a header row with columns: Vendor Name, Email, Phone, Company Name, Department, Supplier Group, Supplier Category, Supplier Location.
           </Text>
@@ -225,24 +364,27 @@ export default function Vendors() {
               )}
             </div>
           )}
+        </InlineExpandPanel>
 
-          <div style={{ marginTop: 16, textAlign: 'right' }}>
-            <Space>
-              <Button onClick={closeImportModal}>Close</Button>
-              <Button type="primary" icon={<UploadOutlined />} loading={importing} onClick={handleImport}>Upload &amp; Import</Button>
-            </Space>
-          </div>
-        </Drawer>
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Row gutter={12} align="middle">
+            <Col flex="1"><Input placeholder="Search by Name" value={searchName} onChange={e => setSearchName(e.target.value)} onPressEnter={() => fetchData()} allowClear /></Col>
+            <Col><Button type="primary" icon={<SearchOutlined />} onClick={() => fetchData()}>Search</Button></Col>
+            <Col><Button icon={<ClearOutlined />} onClick={() => { setSearchName(''); fetchData(); }}>Clear</Button></Col>
+          </Row>
+        </Card>
+        <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle" scroll={{ x: 1070 }}
+          pagination={{ ...pagination, showSizeChanger: true, showTotal: t => `${t} vendors`, onChange: (p, ps) => fetchData(p, ps) }} />
       </div>
     );
   }
 
-  // ─── DETAIL VIEW ───
+  // ─── DETAIL VIEW (full page) ───
   if (view === 'detail' && selected) {
     return (
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <Space>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+          <Space wrap>
             <Button icon={<ArrowLeftOutlined />} onClick={goBack}>Back</Button>
             <Title level={4} style={{ margin: 0 }}>{selected.vendor_name}</Title>
             <Tag color="purple">{selected.vendor_number}</Tag>
@@ -251,17 +393,51 @@ export default function Vendors() {
             {selected.lifecycle_stage && <Tag color={LIFECYCLE_COLOR[selected.lifecycle_stage]}>{selected.lifecycle_stage.toUpperCase()}</Tag>}
             {!!selected.blacklist_flag && <Tag color="red">BLACKLISTED</Tag>}
           </Space>
-          <Space>
+          <Space wrap>
             <Button icon={<EditOutlined />} onClick={() => openEdit(selected)}>Edit</Button>
             {selected.status === 'submitted' && <Button onClick={() => handleAction('review')}>Begin Review</Button>}
             {selected.status === 'under_review' && <Button type="primary" icon={<CheckOutlined />} style={{ background: '#52c41a' }} onClick={() => handleAction('approve')}>Approve</Button>}
-            {selected.status === 'under_review' && <Button danger icon={<CloseOutlined />} onClick={() => setRejectModalOpen(true)}>Reject</Button>}
+            {selected.status === 'under_review' && <Button danger icon={<CloseOutlined />} onClick={() => setRejectPanelOpen(o => !o)}>Reject</Button>}
             {selected.status === 'approved' && <Popconfirm title="Deactivate?" onConfirm={() => handleAction('deactivate')}><Button icon={<StopOutlined />}>Deactivate</Button></Popconfirm>}
             <Popconfirm title="Delete this vendor?" description="This cannot be undone. Vendors with existing transactions cannot be deleted." onConfirm={() => handleDelete(selected.id)}>
               <Button icon={<DeleteOutlined />} danger>Delete</Button>
             </Popconfirm>
           </Space>
         </div>
+
+        {/* Vendor 360 Profile — every figure here is computed on read
+            (GET /vendors/:id/summary), nothing is stored on the vendor record. */}
+        <Card size="small" loading={vendorSummaryLoading} style={{ marginBottom: 16, background: '#fafafa' }}>
+          {vendorSummary && (
+            <Row gutter={16}>
+              <Col span={5}><Statistic title="Total Spend" value={vendorSummary.total_spend ?? 0} prefix="₹" valueStyle={{ fontSize: 18 }} /></Col>
+              <Col span={4}><Statistic title="Active POs" value={vendorSummary.active_po_count} valueStyle={{ fontSize: 18 }} /></Col>
+              <Col span={5}>
+                <Statistic title="On-Time Delivery" value={vendorSummary.on_time_delivery_pct ?? '—'} suffix={vendorSummary.on_time_delivery_pct != null ? '%' : ''}
+                  valueStyle={{ fontSize: 18, color: vendorSummary.on_time_delivery_pct == null ? undefined : vendorSummary.on_time_delivery_pct >= 90 ? '#52c41a' : vendorSummary.on_time_delivery_pct >= 70 ? '#faad14' : '#ff4d4f' }} />
+                {vendorSummary.sample_sizes?.delivery_evaluated > 0 && <Text type="secondary" style={{ fontSize: 11 }}>{vendorSummary.sample_sizes.delivery_evaluated} ASN(s) evaluated</Text>}
+              </Col>
+              <Col span={5}>
+                <Statistic title="Rejection Rate" value={vendorSummary.rejection_rate ?? '—'} suffix={vendorSummary.rejection_rate != null ? '%' : ''}
+                  valueStyle={{ fontSize: 18, color: vendorSummary.rejection_rate == null ? undefined : vendorSummary.rejection_rate === 0 ? '#52c41a' : vendorSummary.rejection_rate < 10 ? '#faad14' : '#ff4d4f' }} />
+              </Col>
+              <Col span={5}><Statistic title="Last Transaction" value={vendorSummary.last_transaction_date ? dayjs(vendorSummary.last_transaction_date).format('DD-MM-YYYY') : '—'} valueStyle={{ fontSize: 18 }} /></Col>
+            </Row>
+          )}
+          {!vendorSummaryLoading && !vendorSummary && <Text type="secondary">No transaction history yet.</Text>}
+        </Card>
+
+        <InlineExpandPanel
+          open={rejectPanelOpen}
+          title="Reject Vendor"
+          submitText="Reject"
+          submitDanger
+          onCancel={() => { setRejectPanelOpen(false); setRejectReason(''); }}
+          onSubmit={() => handleAction('reject')}
+        >
+          <Input.TextArea rows={3} placeholder="Enter rejection reason (mandatory)" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
+        </InlineExpandPanel>
+
         <Tabs defaultActiveKey="overview" items={[
           { key: 'overview', label: 'Overview', children: (
             <Row gutter={[16, 16]}>
@@ -320,11 +496,13 @@ export default function Vendors() {
               <Col span={6}><Card size="small"><Text type="secondary">GST Validation</Text><br /><Tag color={selected.gst_validation_status === 'valid' ? 'green' : selected.gst_validation_status === 'invalid' ? 'red' : 'default'}>{(selected.gst_validation_status || 'pending').toUpperCase()}</Tag></Card></Col>
               <Col span={6}><Card size="small"><Text type="secondary">PAN Validation</Text><br /><Tag color={selected.pan_validation_status === 'valid' ? 'green' : selected.pan_validation_status === 'invalid' ? 'red' : 'default'}>{(selected.pan_validation_status || 'pending').toUpperCase()}</Tag></Card></Col>
               <Col span={6}><Card size="small"><Text type="secondary">Preferred Vendor</Text><br /><Text strong>{selected.preferred_vendor_flag ? 'Yes' : 'No'}</Text></Card></Col>
-              <Col span={6}><Card size="small"><Text type="secondary">Credit Rating</Text><br /><Text strong>{selected.credit_rating || '—'}</Text></Card></Col>
-              <Col span={6}><Card size="small"><Text type="secondary">Credit Limit</Text><br /><Text strong>{selected.credit_limit != null ? `${selected.currency_code || 'INR'} ${selected.credit_limit}` : '—'}</Text></Card></Col>
+              {isVisible('credit_rating') && <Col span={6}><Card size="small"><Text type="secondary">Credit Rating</Text><br /><Text strong>{selected.credit_rating || '—'}</Text></Card></Col>}
+              {isVisible('credit_limit') && <Col span={6}><Card size="small"><Text type="secondary">Credit Limit</Text><br /><Text strong>{selected.credit_limit != null ? `${selected.currency_code || 'INR'} ${selected.credit_limit}` : '—'}</Text></Card></Col>}
               <Col span={6}><Card size="small"><Text type="secondary">Currency</Text><br /><Text strong>{selected.currency_code || 'INR'}</Text></Card></Col>
               <Col span={6}><Card size="small"><Text type="secondary">Risk Category</Text><br />{selected.risk_category ? <Tag color={RISK_COLOR[selected.risk_category]}>{selected.risk_category.toUpperCase()}</Tag> : '—'}</Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Vendor Segment</Text><br />{selected.vendor_segment ? <Tag color={SEGMENT_COLOR[selected.vendor_segment]}>{selected.vendor_segment.toUpperCase()}</Tag> : <Tag>APPROVED</Tag>}</Card></Col>
               <Col span={6}><Card size="small"><Text type="secondary">Account Manager</Text><br /><Text strong>{selected.account_manager_name || '—'}</Text></Card></Col>
+              <Col span={6}><Card size="small"><Text type="secondary">Internal Company</Text><br />{selected.internal_company_id ? <Tag color="purple">{companies.find(c => c.id === selected.internal_company_id)?.company_name || 'Linked'}</Tag> : <Text type="secondary">External vendor</Text>}</Card></Col>
               <Col span={6}><Card size="small"><Text type="secondary">Geo Coordinates</Text><br /><Text strong>{selected.geo_latitude != null && selected.geo_longitude != null ? `${selected.geo_latitude}, ${selected.geo_longitude}` : '—'}</Text></Card></Col>
               <Col span={12}><Card size="small"><Text type="secondary">Serviceable Regions</Text><br />{(parseMaybeJson(selected.serviceable_regions) || []).length > 0 ? (parseMaybeJson(selected.serviceable_regions) || []).map(r => <Tag key={r}>{r}</Tag>) : '—'}</Card></Col>
               {!!selected.blacklist_flag && <Col span={24}><Card size="small" style={{ borderColor: '#ff4d4f' }}><Text type="secondary">Blacklist Reason</Text><br /><Text strong style={{ color: '#ff4d4f' }}>{selected.blacklist_reason || '—'}</Text></Card></Col>}
@@ -340,28 +518,135 @@ export default function Vendors() {
               </Col>
             </Row>
           )},
-        ]} />
-        <Drawer title="Reject Vendor" open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} width={420} footer={
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setRejectModalOpen(false)}>Cancel</Button>
-            <Button type="primary" danger onClick={() => handleAction('reject')}>Reject</Button>
-          </Space>
-        }>
-          <Input.TextArea rows={3} placeholder="Enter rejection reason (mandatory)" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-        </Drawer>
+          { key: 'company-mappings', label: 'Company Mappings', children: (
+            <VendorCompanyMappings vendorId={selected.id} />
+          )},
+          { key: 'intelligence', label: <span><BulbOutlined /> Intelligence</span>, children: (
+            <Space direction="vertical" style={{ width: '100%' }} size={16}>
+              <SmartAssistantPanel entityType="vendor" entityId={selected.id} />
+
+              {intelligenceLoading && <div style={{ textAlign: 'center', padding: 40 }}>Loading…</div>}
+
+              {!intelligenceLoading && (compliance?.is_blocked || !!selected.blacklist_flag) && (
+                <Alert
+                  type="error" showIcon
+                  message="This vendor is blocked from new sourcing"
+                  description={[
+                    !!selected.blacklist_flag && 'Blacklisted.',
+                    compliance?.is_blocked && 'Has an expired compliance document.',
+                  ].filter(Boolean).join(' ')}
+                />
+              )}
+              {!intelligenceLoading && !compliance?.is_blocked && !selected.blacklist_flag && compliance?.documents?.some(d => d.status === 'expiring_soon') && (
+                <Alert type="warning" showIcon message="One or more compliance documents are expiring soon" />
+              )}
+
+              {!intelligenceLoading && compliance && (
+                <Card title="Compliance Status" size="small">
+                  {compliance.documents.length === 0 ? <Text type="secondary">No compliance expiry dates recorded</Text> : (
+                    <Table
+                      size="small" pagination={false} rowKey="label"
+                      dataSource={compliance.documents}
+                      columns={[
+                        { title: 'Document', dataIndex: 'label' },
+                        { title: 'Expiry Date', dataIndex: 'expiry_date' },
+                        { title: 'Days Remaining', dataIndex: 'days_remaining', render: v => v < 0 ? <Text type="danger">{v} (expired)</Text> : v },
+                        { title: 'Status', dataIndex: 'status', render: v => <Tag color={COMPLIANCE_DOC_STATUS_COLOR[v]}>{v.replace('_', ' ').toUpperCase()}</Tag> },
+                      ]}
+                    />
+                  )}
+                  <Text type="secondary" style={{ fontSize: 12 }}>Alert window: {compliance.alert_days} days before expiry.</Text>
+                </Card>
+              )}
+
+              {!intelligenceLoading && vendorScore && (
+                <Card title="Risk & Performance" size="small">
+                  <Row gutter={16}>
+                    <Col span={6}><Statistic title="Performance Score" value={vendorScore.performance_score ?? '—'} suffix={vendorScore.performance_score != null ? '/ 100' : ''} /></Col>
+                    <Col span={6}>
+                      <Statistic title="Risk Level" valueRender={() => <Tag color={vendorScore.risk.risk_level === 'high' ? 'red' : vendorScore.risk.risk_level === 'medium' ? 'orange' : 'green'}>{(vendorScore.risk.risk_level || '—').toUpperCase()}</Tag>} />
+                    </Col>
+                    <Col span={6}>
+                      <Statistic title="Risk Trend" valueRender={() => <Tag color={TREND_COLOR[vendorScore.risk.risk_trend]}>{(vendorScore.risk.risk_trend || '—').toUpperCase()}</Tag>} />
+                    </Col>
+                    <Col span={6}><Statistic title="Price Competitiveness" value={vendorScore.price_competitiveness.score ?? '—'} suffix={vendorScore.price_competitiveness.score != null ? '/ 100' : ''} /></Col>
+                  </Row>
+                  <Row gutter={16} style={{ marginTop: 12 }}>
+                    <Col span={6}><Statistic title="Active Contract" valueRender={() => <Tag color={vendorScore.contract_summary.has_active_contract ? 'green' : 'default'}>{vendorScore.contract_summary.has_active_contract ? 'YES' : 'NO'}</Tag>} /></Col>
+                  </Row>
+                </Card>
+              )}
+
+              {!intelligenceLoading && vendorScore?.insights?.length > 0 && (
+                <Card title="Insights" size="small">
+                  <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                    {vendorScore.insights.map((insight, idx) => (
+                      <Alert
+                        key={idx}
+                        type={insight.severity === 'critical' ? 'error' : insight.severity === 'warning' ? 'warning' : 'info'}
+                        showIcon
+                        message={insight.message}
+                      />
+                    ))}
+                  </Space>
+                </Card>
+              )}
+
+              {!intelligenceLoading && riskActions.length > 0 && (
+                <Card title="Recommended Actions" size="small">
+                  <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                    {riskActions.map((a, idx) => (
+                      <Alert
+                        key={idx}
+                        type="warning"
+                        showIcon
+                        message={ACTION_LABEL[a.action] || a.action}
+                        description={
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <Text>{a.reason}</Text>
+                            {a.action === 'replace_vendor' && a.suggested_vendors?.length > 0 && (
+                              <Space wrap size={4}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>Suggested alternatives:</Text>
+                                {a.suggested_vendors.map(v => <Tag key={v.vendor_id}>{v.vendor_name}</Tag>)}
+                              </Space>
+                            )}
+                            {a.action === 'trigger_audit' && (
+                              <Button size="small" onClick={() => navigate('/audit')}>Go to Audit Management</Button>
+                            )}
+                          </Space>
+                        }
+                      />
+                    ))}
+                  </Space>
+                </Card>
+              )}
+
+              {!intelligenceLoading && !compliance && !vendorScore && <Empty description="No intelligence data available" />}
+            </Space>
+          )},
+        ]} onChange={onDetailTabChange} />
       </div>
     );
   }
 
-  // ─── EDIT VIEW (Admin can edit all fields) ───
+  // ─── EDIT VIEW (full-page task flow — Admin can edit all fields) ───
   if (view === 'edit' && selected) {
     return (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={goBack} style={{ marginRight: 12 }}>Back</Button>
-          <Title level={4} style={{ margin: 0 }}>Edit — {selected.vendor_name}</Title>
-          <Tag color="purple" style={{ marginLeft: 12 }}>{selected.vendor_number}</Tag>
-        </div>
+      <div style={{ paddingBottom: 0 }}>
+        <div style={{ paddingBottom: 88 }}>
+          {uiImprovementsEnabled ? (
+            <PageHeader
+              items={[{ title: 'Vendor Management' }, { title: 'Vendors' }]}
+              title={<>Edit — {selected.vendor_name} <Tag color="purple" style={{ marginLeft: 8 }}>{selected.vendor_number}</Tag></>}
+              onBack={goBack}
+            />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
+              <Button icon={<ArrowLeftOutlined />} onClick={goBack} style={{ marginRight: 12 }}>Back</Button>
+              <Title level={4} style={{ margin: 0 }}>Edit — {selected.vendor_name}</Title>
+              <Tag color="purple" style={{ marginLeft: 12 }}>{selected.vendor_number}</Tag>
+            </div>
+          )}
         <Card>
           <Form form={form} layout="vertical">
             <Title level={5}>Core Information</Title>
@@ -371,9 +656,9 @@ export default function Vendors() {
               <Col span={8}><Form.Item name="phone" label="Phone" rules={[{ required: isRequired('phone', true), message: 'Phone is required' }]}><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: isRequired('company_name', true), message: 'Company is required' }]}><Select showSearch placeholder="Select" options={(subMasters.company || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: isRequired('company_name', true), message: 'Company is required' }]}><Select showSearch placeholder="Select" options={(companies || []).map(c => ({ value: c.company_name, label: c.company_name }))} /></Form.Item></Col>
               <Col span={6}><Form.Item name="department" label="Department" rules={[{ required: isRequired('department', true), message: 'Department is required' }]}><Select showSearch placeholder="Select" options={(subMasters.department || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: isRequired('supplier_group', true), message: 'Supplier Group is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+              <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: isRequired('supplier_group', false), message: 'Supplier Group is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
               <Col span={6}><Form.Item name="supplier_category" label="Category" rules={[{ required: isRequired('supplier_category', true), message: 'Category is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_category || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
@@ -414,10 +699,18 @@ export default function Vendors() {
               <Col span={6}><Form.Item name="account_manager_name" label="Account Manager" rules={[{ required: isRequired('account_manager_name', false), message: 'Account Manager is required' }]}><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}><Form.Item name="credit_rating" label={<span>Credit Rating<span className="form-label-desc">e.g. AA+, BB</span></span>} rules={[{ required: isRequired('credit_rating', false), message: 'Credit Rating is required' }]}><Input maxLength={10} /></Form.Item></Col>
-              <Col span={6}><Form.Item name="credit_limit" label="Credit Limit" rules={[{ required: isRequired('credit_limit', false), message: 'Credit Limit is required' }]}><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+              {isVisible('credit_rating') && <Col span={6}><Form.Item name="credit_rating" label={<span>Credit Rating<span className="form-label-desc">e.g. AA+, BB</span></span>} rules={[{ required: isRequired('credit_rating', false), message: 'Credit Rating is required' }]}><Input maxLength={10} /></Form.Item></Col>}
+              {isVisible('credit_limit') && <Col span={6}><Form.Item name="credit_limit" label="Credit Limit" rules={[{ required: isRequired('credit_limit', false), message: 'Credit Limit is required' }]}><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>}
               <Col span={6}><Form.Item name="risk_category" label="Risk Category" rules={[{ required: isRequired('risk_category', false), message: 'Risk Category is required' }]}><Select placeholder="Select" options={[{ value: 'low' }, { value: 'medium' }, { value: 'high' }]} allowClear /></Form.Item></Col>
+              <Col span={6}><Form.Item name="vendor_segment" label={<span>Vendor Segment<span className="form-label-desc">Used for RFQ sourcing priority and recommendations</span></span>} rules={[{ required: isRequired('vendor_segment', false), message: 'Vendor Segment is required' }]}><Select placeholder="Select" options={SEGMENT_OPTIONS} allowClear /></Form.Item></Col>
               <Col span={6}><Form.Item name="preferred_vendor_flag" label=" " valuePropName="checked"><Checkbox>Preferred Vendor</Checkbox></Form.Item></Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Form.Item name="internal_company_id" label={<span>Internal Company<span className="form-label-desc">Set only if this vendor is one of the organization's own companies (Procurement OS Intercompany)</span></span>}>
+                  <Select placeholder="None — external vendor" allowClear options={companies.map(c => ({ value: c.id, label: c.company_name }))} />
+                </Form.Item>
+              </Col>
             </Row>
             <Row gutter={16}>
               <Col span={6}><Form.Item name="geo_latitude" label="Geo Latitude" rules={[{ required: isRequired('geo_latitude', false), message: 'Geo Latitude is required' }]}><InputNumber style={{ width: '100%' }} step={0.0000001} /></Form.Item></Col>
@@ -479,19 +772,21 @@ export default function Vendors() {
               </Card>
             ))}
             <Button type="dashed" icon={<PlusCircleOutlined />} onClick={addBank} block>Add Bank Account</Button>
-
-            <Divider />
-            <Space size="middle">
-              <Button type="primary" size="large" icon={<SaveOutlined />} onClick={handleUpdate}>Save Changes</Button>
-              <Button size="large" onClick={goBack}>Cancel</Button>
-            </Space>
           </Form>
         </Card>
+        </div>
+
+        <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: '1px solid #f0f0f0', padding: '16px 24px', margin: '0 -24px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <Space size="middle">
+            <Button onClick={goBack}>Cancel</Button>
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleUpdate}>Save Changes</Button>
+          </Space>
+        </div>
       </div>
     );
   }
 
-  // ─── CREATE FORM VIEW ───
+  // ─── CREATE FORM VIEW (full-page task flow) ───
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
@@ -507,13 +802,14 @@ export default function Vendors() {
             <Col span={8}><Form.Item name="phone" label={<span>Phone<span className="form-label-desc">Primary contact</span></span>} rules={[{ required: isRequired('phone', true), message: 'Phone is required' }]}><Input placeholder="+91 XXXXXXXXXX" /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
-            <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: isRequired('company_name', true), message: 'Company is required' }]}><Select showSearch placeholder="Select" options={(subMasters.company || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="company_name" label="Company" rules={[{ required: isRequired('company_name', true), message: 'Company is required' }]}><Select showSearch placeholder="Select" options={(companies || []).map(c => ({ value: c.company_name, label: c.company_name }))} /></Form.Item></Col>
             <Col span={6}><Form.Item name="department" label="Department" rules={[{ required: isRequired('department', true), message: 'Department is required' }]}><Select showSearch placeholder="Select" options={(subMasters.department || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: isRequired('supplier_group', true), message: 'Supplier Group is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="supplier_group" label="Supplier Group" rules={[{ required: isRequired('supplier_group', false), message: 'Supplier Group is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_group || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
             <Col span={6}><Form.Item name="supplier_category" label="Category" rules={[{ required: isRequired('supplier_category', true), message: 'Category is required' }]}><Select showSearch placeholder="Select" options={(subMasters.supplier_category || []).map(s => ({ value: s.name, label: s.name }))} /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
             <Col span={8}><Form.Item name="supplier_location" label="Location" rules={[{ required: isRequired('supplier_location', true), message: 'Location is required' }]}><Input placeholder="City / Location" /></Form.Item></Col>
+            <Col span={16}><Form.Item name="company_ids" label="Company Access (assign to companies)" rules={[{ required: true, message: 'At least one company is required' }]}><CompanySelector mode="multiple" placeholder="Select companies this vendor serves" style={{ width: '100%' }} /></Form.Item></Col>
           </Row>
 
           <Divider />

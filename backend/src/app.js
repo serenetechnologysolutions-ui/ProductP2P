@@ -58,6 +58,7 @@ app.use('/uploads', express.static(path.resolve(uploadDir)));
 app.use('/api/auth', require('./modules/auth/auth.routes'));
 app.use('/api/vendors', require('./modules/vendor/vendor.routes'));
 app.use('/api/asns', require('./modules/asn/asn.routes'));
+app.use('/api/grn', require('./modules/asn/grn.routes'));
 app.use('/api/sub-masters', require('./modules/sub-masters/sub-masters.routes'));
 app.use('/api/purchase-orders', require('./modules/purchase-orders/po.routes'));
 app.use('/api/extraction-configs', require('./modules/extraction/extraction.routes'));
@@ -76,6 +77,20 @@ app.use('/api/workflow', require('./modules/workflow/workflow.routes'));
 app.use('/api/documents', require('./modules/documents/documents.routes'));
 app.use('/api/pr', require('./modules/pr/pr.routes'));
 app.use('/api/contracts', require('./modules/contracts/contracts.routes'));
+app.use('/api/insights', require('./modules/insights/insights.routes'));
+app.use('/api/exceptions', require('./modules/exceptions/exceptions.routes'));
+app.use('/api/traceability', require('./modules/traceability/traceability.routes'));
+app.use('/api/assistant', require('./modules/assistant/assistant.routes'));
+app.use('/api/vendor-portal', require('./modules/vendor-portal/vendor-portal.routes'));
+app.use('/api/reports', require('./modules/reports/reports.routes'));
+app.use('/api/events', require('./modules/events/events.routes'));
+app.use('/api/companies', require('./modules/company/company.routes'));
+app.use('/api/payments', require('./modules/payments/payments.routes'));
+app.use('/api/inventory', require('./modules/inventory/inventory.routes'));
+app.use('/api/vendor-company-mapping', require('./modules/vendor/vendor-company.routes'));
+app.use('/api/integration', require('./modules/sap-connector/sap-connector.routes'));
+app.use('/api/decision-engine', require('./modules/decision-engine/decision-engine.routes'));
+app.use('/api/action-engine', require('./modules/action-engine/action-engine.routes'));
 
 // Health check (no sensitive info)
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

@@ -1,9 +1,13 @@
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../../config/database');
 const { ValidationError, NotFoundError } = require('../../common/errors');
+const { emitEvent } = require('../../common/eventBus');
 
 async function getPrOrThrow(id, conn) {
-  const [rows] = await (conn || pool).query('SELECT * FROM purchase_requisitions WHERE id = ?', [id]);
+  const [rows] = await (conn || pool).query(
+    `SELECT pr.*, cm.company_name FROM purchase_requisitions pr LEFT JOIN company_master cm ON pr.company_id = cm.id WHERE pr.id = ?`,
+    [id]
+  );
   if (rows.length === 0) throw new NotFoundError('Purchase requisition not found');
   return rows[0];
 }
@@ -103,12 +107,67 @@ async function resolveApprovalRule(pr, conn) {
 
 // Pure, side-effect-free suggestion for the create form's "System Insights"
 // panel — never overrides the sourcing_strategy the user actually picks.
+// Vendor Segmentation: a preferred vendor's segment refines the recommendation
+// further — Strategic/Preferred vendors are already vetted go-to partners
+// (lean toward automatic ordering), Tactical vendors still warrant competitive
+// sourcing even below the value threshold (lean toward RFQ).
 async function computeSourcingRecommendation({ total_value, preferred_vendor_id, contract_id }, conn) {
   const threshold = Number(await getSetting('pr_rfq_threshold_value', '500000', conn));
   if (contract_id) return { recommended_strategy: 'CONTRACT_BASED', reason: 'An active contract is referenced — sourcing can skip RFQ.' };
   if (Number(total_value) > threshold) return { recommended_strategy: 'RFQ_REQUIRED', reason: `Value exceeds the configured RFQ threshold (${threshold}).` };
-  if (preferred_vendor_id) return { recommended_strategy: 'DIRECT_PO_ALLOWED', reason: 'A preferred vendor is on file — direct PO is possible.' };
+  if (preferred_vendor_id) {
+    const c = conn || pool;
+    const [rows] = await c.query('SELECT vendor_segment FROM vendors WHERE id = ?', [preferred_vendor_id]);
+    const segment = rows[0]?.vendor_segment;
+    if (segment === 'tactical') {
+      return { recommended_strategy: 'RFQ_REQUIRED', reason: 'Preferred vendor is segmented as Tactical — competitive sourcing is recommended even below the RFQ threshold.' };
+    }
+    if (segment === 'strategic' || segment === 'preferred') {
+      return { recommended_strategy: 'AUTO_PO', reason: `Preferred vendor is segmented as ${segment.charAt(0).toUpperCase() + segment.slice(1)} — automatic ordering is appropriate.` };
+    }
+    return { recommended_strategy: 'DIRECT_PO_ALLOWED', reason: 'A preferred vendor is on file — direct PO is possible.' };
+  }
   return { recommended_strategy: 'RFQ_REQUIRED', reason: 'No preferred vendor or contract on file — default to competitive sourcing.' };
+}
+
+// ─── Budget Commitment Model ────────────────────────────────────────────────
+// Four-stage funnel against one budget_allocations row (cost_center + fiscal
+// year): allocated -> committed (PR approved) -> consumed (PO created) ->
+// actual (ASN posted). Money is *reclassified* from one stage to the next as
+// it moves through the lifecycle, not just added on top — otherwise the same
+// rupee would show up committed AND consumed AND actual simultaneously,
+// overstating total exposure when the three are summed. All four functions
+// are no-ops if the cost center has no allocation row, matching the existing
+// opt-in behavior (not_configured never blocks).
+//
+// Known limitation inherited from the existing consumeBudget design: fiscal
+// year is derived from the current calendar year at call time, not stored on
+// the PR/PO/ASN itself, so a PR approved in one fiscal year whose PO/ASN
+// lands in the next would commit/consume/actualize against different
+// allocation rows. Not fixed here — would need a stored fiscal_year column
+// on PR/PO/ASN, which is a larger change than this task asked for.
+
+async function commitBudget(costCenter, amount, conn) {
+  if (!costCenter || !amount) return;
+  const c = conn || pool;
+  const fiscalYear = String(new Date().getFullYear());
+  await c.query(
+    'UPDATE budget_allocations SET committed_amount = committed_amount + ? WHERE cost_center = ? AND fiscal_year = ?',
+    [amount, costCenter, fiscalYear]
+  );
+}
+
+// Called when a PR's committed value converts into a real PO — releases the
+// corresponding amount from committed_amount (GREATEST clamps at 0 so a price
+// change between PR-estimate and PO-actual can never drive it negative).
+async function releaseCommitment(costCenter, amount, conn) {
+  if (!costCenter || !amount) return;
+  const c = conn || pool;
+  const fiscalYear = String(new Date().getFullYear());
+  await c.query(
+    'UPDATE budget_allocations SET committed_amount = GREATEST(committed_amount - ?, 0) WHERE cost_center = ? AND fiscal_year = ?',
+    [amount, costCenter, fiscalYear]
+  );
 }
 
 // Increments the matching allocation's consumed_amount when a PO is actually
@@ -124,23 +183,127 @@ async function consumeBudget(costCenter, amount, conn) {
   );
 }
 
+// Called when an ASN posts — releases the matching amount from
+// consumed_amount (the PO-stage obligation) as it converts into real,
+// incurred spend (recordActual, below).
+async function releaseConsumption(costCenter, amount, conn) {
+  if (!costCenter || !amount) return;
+  const c = conn || pool;
+  const fiscalYear = String(new Date().getFullYear());
+  await c.query(
+    'UPDATE budget_allocations SET consumed_amount = GREATEST(consumed_amount - ?, 0) WHERE cost_center = ? AND fiscal_year = ?',
+    [amount, costCenter, fiscalYear]
+  );
+}
+
+async function recordActual(costCenter, amount, conn) {
+  if (!costCenter || !amount) return;
+  const c = conn || pool;
+  const fiscalYear = String(new Date().getFullYear());
+  await c.query(
+    'UPDATE budget_allocations SET actual_amount = actual_amount + ? WHERE cost_center = ? AND fiscal_year = ?',
+    [amount, costCenter, fiscalYear]
+  );
+}
+
+// `remaining` now nets out every stage of the funnel (committed + consumed +
+// actual), not just consumed — two PRs against the same cost center that
+// haven't yet converted to POs now correctly compete for the same remaining
+// budget instead of each independently appearing "within budget."
 async function computeBudgetStatus(costCenter, totalValue, conn) {
-  if (!costCenter) return { budget_status: 'not_configured', allocated_amount: null, consumed_amount: null, remaining_amount: null };
+  if (!costCenter) return { budget_status: 'not_configured', allocated_amount: null, committed_amount: null, consumed_amount: null, actual_amount: null, remaining_amount: null };
   const c = conn || pool;
   const fiscalYear = String(new Date().getFullYear());
   const [rows] = await c.query(
     'SELECT * FROM budget_allocations WHERE cost_center = ? AND fiscal_year = ?',
     [costCenter, fiscalYear]
   );
-  if (rows.length === 0) return { budget_status: 'not_configured', allocated_amount: null, consumed_amount: null, remaining_amount: null };
+  if (rows.length === 0) return { budget_status: 'not_configured', allocated_amount: null, committed_amount: null, consumed_amount: null, actual_amount: null, remaining_amount: null };
   const allocation = rows[0];
-  const remaining = Number(allocation.allocated_amount) - Number(allocation.consumed_amount);
+  const remaining = Number(allocation.allocated_amount)
+    - Number(allocation.committed_amount)
+    - Number(allocation.consumed_amount)
+    - Number(allocation.actual_amount);
   return {
     budget_status: Number(totalValue) > remaining ? 'exceeds_budget' : 'within_budget',
     allocated_amount: allocation.allocated_amount,
+    committed_amount: allocation.committed_amount,
     consumed_amount: allocation.consumed_amount,
+    actual_amount: allocation.actual_amount,
     remaining_amount: remaining,
   };
+}
+
+// ─── Line-Level Approval ─────────────────────────────────────────────────────
+// "Workflow based on value/category": which lines must be individually
+// approved/rejected (rather than riding through on the requisition's bulk
+// approval) is decided once at submit time, from two configurable triggers —
+// a line value threshold and an item-category list — mirroring how the
+// pr_rfq_threshold_value check already works at submit.
+async function determineLineApprovalRequirement(line, conn) {
+  const c = conn || pool;
+  const valueThreshold = Number(await getSetting('pr_line_approval_value_threshold', '200000', c));
+  if (Number(line.estimated_total_price || 0) >= valueThreshold) return true;
+
+  const categoriesRaw = await getSetting('pr_line_approval_categories', '', c);
+  const categories = categoriesRaw.split(',').map(s => s.trim()).filter(Boolean);
+  if (categories.length > 0 && line.item_master_id) {
+    const [[item]] = await c.query('SELECT category FROM item_master WHERE id = ?', [line.item_master_id]);
+    if (item && categories.includes(item.category)) return true;
+  }
+  return false;
+}
+
+// Lines still blocking finalization — flagged as requiring individual review
+// but not yet approved or rejected. Non-empty means the requisition's final
+// approval step can't bulk-finalize yet.
+async function getBlockingLineItems(prId, conn) {
+  const c = conn || pool;
+  const [lines] = await c.query(
+    "SELECT * FROM pr_line_items WHERE pr_id = ? AND requires_line_approval = TRUE AND approval_status = 'pending'",
+    [prId]
+  );
+  return lines;
+}
+
+// Called at the requisition's final workflow step once getBlockingLineItems
+// is empty. Lines that never required individual review are bulk-approved
+// here as a bookkeeping side effect, so every line ends up in a terminal
+// state. The requisition's own status becomes 'approved' (no rejections),
+// 'partially_approved' (a mix — the ENUM value the schema already had but no
+// code previously set), or 'rejected' (every line rejected). Budget is
+// committed only for the approved lines' value, not the full PR total, so a
+// partial approval never over-commits the cost center.
+async function finalizePrApproval(pr, actorId, conn) {
+  const c = conn || pool;
+  const [lines] = await c.query('SELECT * FROM pr_line_items WHERE pr_id = ?', [pr.id]);
+
+  const autoApproveIds = lines.filter(l => l.approval_status === 'pending').map(l => l.id);
+  if (autoApproveIds.length > 0) {
+    await c.query(
+      `UPDATE pr_line_items SET approval_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id IN (${autoApproveIds.map(() => '?').join(',')})`,
+      [actorId, ...autoApproveIds]
+    );
+    lines.forEach(l => { if (l.approval_status === 'pending') l.approval_status = 'approved'; });
+  }
+
+  const rejectedLines = lines.filter(l => l.approval_status === 'rejected');
+  const approvedLines = lines.filter(l => l.approval_status === 'approved');
+  const approvedValue = approvedLines.reduce((sum, l) => sum + Number(l.estimated_total_price || 0), 0);
+
+  if (approvedLines.length === 0) {
+    const remarks = rejectedLines.map(l => `${l.description}: ${l.rejection_remarks || 'rejected'}`).join('; ') || 'All line items rejected';
+    await c.query("UPDATE purchase_requisitions SET status = 'rejected', rejection_reason = ? WHERE id = ?", [remarks, pr.id]);
+    return { final_status: 'rejected', approved_value: 0, rejected_count: rejectedLines.length };
+  }
+
+  const finalStatus = rejectedLines.length > 0 ? 'partially_approved' : 'approved';
+  await c.query('UPDATE purchase_requisitions SET status = ? WHERE id = ?', [finalStatus, pr.id]);
+  await commitBudget(pr.cost_center, approvedValue, c);
+
+  await emitEvent('PR_APPROVED', { module_name: 'pr', record_id: pr.id, pr_number: pr.pr_number, final_status: finalStatus, approved_value: approvedValue }, c);
+
+  return { final_status: finalStatus, approved_value: approvedValue, rejected_count: rejectedLines.length };
 }
 
 module.exports = {
@@ -155,5 +318,12 @@ module.exports = {
   resolveApprovalRule,
   computeSourcingRecommendation,
   computeBudgetStatus,
+  commitBudget,
+  releaseCommitment,
   consumeBudget,
+  releaseConsumption,
+  recordActual,
+  determineLineApprovalRequirement,
+  getBlockingLineItems,
+  finalizePrApproval,
 };

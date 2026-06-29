@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Tag, Space, Row, Col, Card, Typography, Tabs, Divider, Statistic, message } from 'antd';
+import { Table, Tag, Space, Row, Col, Card, Typography, Tabs, Divider, Statistic, Select, message } from 'antd';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import api from '../api/axios';
 
@@ -9,6 +9,7 @@ export default function PriceBenchmarking() {
   const [benchmarks, setBenchmarks] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedItem, setSelectedItem] = useState(null);
 
   const fetchBenchmarks = async () => {
     setLoading(true);
@@ -52,12 +53,12 @@ export default function PriceBenchmarking() {
   }));
 
   const benchmarkColumns = [
-    { title: 'Item Description', dataIndex: 'item_description' },
-    { title: 'Records', dataIndex: 'record_count', width: 90 },
-    { title: 'Avg Price', dataIndex: 'avg_price', width: 120, render: formatPrice },
-    { title: 'Min Price', dataIndex: 'min_price', width: 120, render: v => <Text style={{ color: '#52c41a' }}>{formatPrice(v)}</Text> },
-    { title: 'Max Price', dataIndex: 'max_price', width: 120, render: v => <Text style={{ color: '#ff4d4f' }}>{formatPrice(v)}</Text> },
-    { title: 'Last Price', dataIndex: 'last_price', width: 120, render: formatPrice },
+    { title: 'Item Description', dataIndex: 'item_description', sorter: (a, b) => String(a.item_description || '').localeCompare(String(b.item_description || '')) },
+    { title: 'Records', dataIndex: 'record_count', width: 90, sorter: (a, b) => Number(a.record_count || 0) - Number(b.record_count || 0) },
+    { title: 'Avg Price', dataIndex: 'avg_price', width: 120, render: formatPrice, sorter: (a, b) => Number(a.avg_price || 0) - Number(b.avg_price || 0) },
+    { title: 'Min Price', dataIndex: 'min_price', width: 120, render: v => <Text style={{ color: '#52c41a' }}>{formatPrice(v)}</Text>, sorter: (a, b) => Number(a.min_price || 0) - Number(b.min_price || 0) },
+    { title: 'Max Price', dataIndex: 'max_price', width: 120, render: v => <Text style={{ color: '#ff4d4f' }}>{formatPrice(v)}</Text>, sorter: (a, b) => Number(a.max_price || 0) - Number(b.max_price || 0) },
+    { title: 'Last Price', dataIndex: 'last_price', width: 120, render: formatPrice, sorter: (a, b) => Number(a.last_price || 0) - Number(b.last_price || 0) },
   ];
 
   const vendorColumns = [
@@ -78,6 +79,18 @@ export default function PriceBenchmarking() {
     <div>
       <Title level={4} style={{ margin: 0 }}>Price Insights</Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Compare supplier pricing trends and benchmark across vendors and items.</Text>
+      <div style={{ marginBottom: 16 }}>
+        <Text strong style={{ marginRight: 8 }}>Filter by Item:</Text>
+        <Select
+          showSearch allowClear
+          placeholder="All Items"
+          value={selectedItem}
+          onChange={setSelectedItem}
+          style={{ width: 300 }}
+          optionFilterProp="label"
+          options={benchmarks.map(b => ({ value: b.item_description, label: b.item_description }))}
+        />
+      </div>
       <Divider style={{ margin: '12px 0' }} />
 
       <Tabs defaultActiveKey="overview" items={[
@@ -95,7 +108,7 @@ export default function PriceBenchmarking() {
                 </ResponsiveContainer>
               </Card>
             )}
-            <Table columns={benchmarkColumns} dataSource={benchmarks} rowKey="item_description" loading={loading} size="middle" />
+            <Table columns={benchmarkColumns} dataSource={selectedItem ? benchmarks.filter(b => b.item_description === selectedItem) : benchmarks} rowKey="item_description" loading={loading} size="middle" />
           </div>
         )},
         { key: 'vendor', label: 'Vendor-wise Pricing', children: (

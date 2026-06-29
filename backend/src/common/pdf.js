@@ -32,8 +32,8 @@ function fmtDate(d) {
 
 // Title banner — company identity on the left, document number/date/status
 // key-value block on the right. Returns the y position to continue from.
-function drawDocumentHeader(doc, { companyName, companyLine, title, fields }) {
-  const startY = MARGIN;
+function drawDocumentHeader(doc, { companyName, companyLine, title, fields, startY: customStartY }) {
+  const startY = customStartY || MARGIN;
   doc.fontSize(16).font('Helvetica-Bold').fillColor(COLOR_TEXT).text(companyName || 'ProcureTrack', MARGIN, startY, { width: 280 });
   let leftY = doc.y;
   if (companyLine) {
@@ -183,9 +183,46 @@ function drawFooterNote(doc, text) {
     .text(text, MARGIN, pageBottom, { width: CONTENT_WIDTH, align: 'center' });
 }
 
+// Renders company statutory details (name, address, CIN/PAN/GSTIN) at the top
+// of a PDF before the document header. Returns the y position to continue from.
+// If `company` is null/undefined, returns startY unchanged (no-op).
+function drawCompanyDetailsBlock(doc, company) {
+  if (!company) return MARGIN;
+  const startY = MARGIN;
+
+  // Company name — large bold
+  doc.fontSize(13).font('Helvetica-Bold').fillColor(COLOR_TEXT)
+    .text(company.company_name, MARGIN, startY, { width: CONTENT_WIDTH, align: 'center' });
+  let y = doc.y + 2;
+
+  // Address line (address, city, state, pin_code)
+  const addressParts = [company.address, company.city, company.state, company.pin_code].filter(Boolean);
+  if (addressParts.length > 0) {
+    doc.fontSize(8.5).font('Helvetica').fillColor(COLOR_MUTED)
+      .text(addressParts.join(', '), MARGIN, y, { width: CONTENT_WIDTH, align: 'center' });
+    y = doc.y + 2;
+  }
+
+  // Statutory identifiers on one line: CIN | PAN | GSTIN
+  const statutory = [];
+  if (company.cin) statutory.push(`CIN: ${company.cin}`);
+  if (company.pan) statutory.push(`PAN: ${company.pan}`);
+  if (company.gstin) statutory.push(`GSTIN: ${company.gstin}`);
+  if (statutory.length > 0) {
+    doc.fontSize(8).font('Helvetica').fillColor(COLOR_MUTED)
+      .text(statutory.join('  |  '), MARGIN, y, { width: CONTENT_WIDTH, align: 'center' });
+    y = doc.y + 2;
+  }
+
+  // Separator line below company block
+  y += 6;
+  doc.moveTo(MARGIN, y).lineTo(MARGIN + CONTENT_WIDTH, y).strokeColor('#cccccc').lineWidth(0.5).stroke();
+  return y + 10;
+}
+
 module.exports = {
   newDocument, fmtMoney, fmtDate,
   drawDocumentHeader, drawTwoColumnBlock, drawFieldGrid, drawSectionTitle,
-  drawTable, drawTotalsBlock, drawSignatureBlock, drawFooterNote,
+  drawTable, drawTotalsBlock, drawSignatureBlock, drawFooterNote, drawCompanyDetailsBlock,
   MARGIN, CONTENT_WIDTH,
 };

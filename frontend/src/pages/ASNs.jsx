@@ -1,17 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Typography, Divider, Steps, Upload, Drawer, Checkbox, message } from 'antd';
-import { PlusOutlined, ArrowLeftOutlined, CheckOutlined, CloseOutlined, SendOutlined, EditOutlined, SaveOutlined, UploadOutlined, AuditOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
+import { Table, Button, Form, Input, InputNumber, DatePicker, Select, Tag, Space, Row, Col, Card, Typography, Divider, Steps, Upload, Checkbox, message, Alert } from 'antd';
+import { PlusOutlined, ArrowLeftOutlined, CheckOutlined, CloseOutlined, SendOutlined, EditOutlined, SaveOutlined, UploadOutlined, AuditOutlined, FileProtectOutlined, FileTextOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
 import { useFieldConfig } from '../contexts/FieldConfigContext';
 import { DOCUMENT_INTELLIGENCE_URL } from '../config';
+import InlineExpandPanel from '../components/ui/InlineExpandPanel';
+import PageHeader from '../components/ui/PageHeader';
+import { useFeatureFlag } from '../contexts/FeatureFlagsContext';
+import InactiveCompanyBadge from '../components/InactiveCompanyBadge';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR = { draft: 'default', submitted: 'blue', validated: 'orange', posted: 'green', rejected: 'red' };
 const STATUS_LABEL = { draft: 'DRAFT', submitted: 'INITIATED', validated: 'VALIDATED', posted: 'POSTED', rejected: 'REJECTED' };
 const MATCH_STATUS_COLOR = { matched: 'green', mismatched: 'red', pending: 'default' };
 
+// Field names that live on each wizard step's <Form.Item>s — validated before allowing
+// the wizard to advance, so a step with an unfilled mandatory field can't be skipped.
+const STEP_FIELDS = [
+  ['po_id'],
+  ['invoice_number', 'eta', 'total_amount', 'lr_number', 'transporter_name', 'driver_name',
+    'driver_number', 'additional_info1', 'additional_info2', 'additional_info3', 'additional_info4', 'remarks',
+    'shipment_mode', 'vehicle_number', 'eway_bill_number', 'dispatch_date', 'actual_delivery_date',
+    'invoice_currency', 'exchange_rate', 'freight_charges', 'cgst_amount', 'sgst_amount', 'igst_amount'],
+  [],
+];
+
 export default function ASNs() {
+  const uiImprovementsEnabled = useFeatureFlag('ui_improvements_enabled');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
@@ -32,6 +49,19 @@ export default function ASNs() {
   const [matchDiscrepancyReason, setMatchDiscrepancyReason] = useState('');
   const { isRequired } = useFieldConfig('asn');
   const [subMasters, setSubMasters] = useState({ shipment_mode: [], currency: [] });
+
+  // GRN (Goods Receipt Note) + Invoice — the formal stages between ASN
+  // validation and ERP posting (see asn/grn.service.js, asn/invoice.service.js).
+  const [grn, setGrn] = useState(null);
+  const [grnLoading, setGrnLoading] = useState(false);
+  const [grnPanelOpen, setGrnPanelOpen] = useState(false);
+  const [grnReceivedDate, setGrnReceivedDate] = useState(null);
+  const [grnRemarks, setGrnRemarks] = useState('');
+  const [grnLineInputs, setGrnLineInputs] = useState([]);
+  const [grnSaving, setGrnSaving] = useState(false);
+  const [invoice, setInvoice] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceCreating, setInvoiceCreating] = useState(false);
 
   const user = (() => { try { return JSON.parse(localStorage.getItem('vendor_user')) || {}; } catch { return {}; } })();
 
@@ -99,12 +129,95 @@ export default function ASNs() {
     setView('edit');
   };
 
-  const openDetail = async (record) => {
-    try { const res = await api.get(`/asns/${record.id}`); setSelected(res.data.data); } catch (_) { setSelected(record); }
+  const openDetail = async (record, autoOpenGrn = false) => {
+    let asn = record;
+    try { const res = await api.get(`/asns/${record.id}`); asn = res.data.data; setSelected(asn); } catch (_) { setSelected(record); }
     setView('detail');
+    fetchGrn(asn.id);
+    fetchInvoice(asn.id);
+    if (autoOpenGrn) openGrnPanel(asn);
   };
 
-  const goBack = () => { setView('list'); setSelected(null); };
+  const goBack = () => { setView('list'); setSelected(null); setGrn(null); setInvoice(null); };
+
+  const fetchGrn = async (asnId) => {
+    setGrnLoading(true);
+    try { const res = await api.get(`/asns/${asnId}/grn`); setGrn(res.data.data); } catch (_) { setGrn(null); }
+    setGrnLoading(false);
+  };
+
+  const fetchInvoice = async (asnId) => {
+    setInvoiceLoading(true);
+    try { const res = await api.get(`/asns/${asnId}/invoice`); setInvoice(res.data.data); } catch (_) { setInvoice(null); }
+    setInvoiceLoading(false);
+  };
+
+  const openGrnPanel = async (asnOverride) => {
+    let source = asnOverride || selected;
+    if (!source || !source.id) { message.warning('Please select an ASN first'); return; }
+    // Always fetch fresh detail to ensure line_items are loaded
+    try {
+      const res = await api.get(`/asns/${source.id}`);
+      source = res.data.data;
+      setSelected(source);
+    } catch (err) { message.error('Failed to load ASN details'); return; }
+    setGrnReceivedDate(dayjs());
+    setGrnRemarks('');
+    setGrnLineInputs((source.line_items || []).map(li => ({
+      asn_line_item_id: li.id,
+      description: li.description || li.po_description,
+      shipped_quantity: Number(li.quantity),
+      received_quantity: Number(li.quantity),
+      rejected_quantity: 0,
+      rejection_reason: '',
+    })));
+    setGrnPanelOpen(true);
+  };
+
+  const updateGrnLine = (i, field, value) => setGrnLineInputs(prev => prev.map((row, idx) => idx === i ? { ...row, [field]: value } : row));
+
+  const handleSaveGrn = async () => {
+    if (!grnReceivedDate) { message.error('Received Date is required'); return; }
+    const missingReason = grnLineInputs.find(r => Number(r.rejected_quantity) > 0 && !r.rejection_reason.trim());
+    if (missingReason) { message.error(`Rejection reason is required for "${missingReason.description}"`); return; }
+    setGrnSaving(true);
+    try {
+      const res = await api.post(`/asns/${selected.id}/grn`, {
+        received_date: grnReceivedDate.format('YYYY-MM-DD'),
+        remarks: grnRemarks || undefined,
+        line_items: grnLineInputs.map(r => ({
+          asn_line_item_id: r.asn_line_item_id,
+          received_quantity: r.received_quantity,
+          rejected_quantity: r.rejected_quantity || 0,
+          rejection_reason: r.rejection_reason || undefined,
+        })),
+      });
+      message.success(res.data.data.status === 'exception' ? 'GRN created — tolerance exceeded on one or more lines' : 'GRN created');
+      setGrnPanelOpen(false);
+      fetchGrn(selected.id);
+    } catch (err) { message.error(err.response?.data?.error || 'Failed to create GRN'); }
+    setGrnSaving(false);
+  };
+
+  const handleCreateInvoice = async () => {
+    setInvoiceCreating(true);
+    try {
+      const res = await api.post(`/asns/${selected.id}/invoice`);
+      message[res.data.data.match_status === 'blocked' ? 'warning' : 'success'](
+        res.data.data.match_status === 'blocked' ? 'Invoice created — blocked on 3-way match' : 'Invoice created and matched'
+      );
+      fetchInvoice(selected.id);
+    } catch (err) { message.error(err.response?.data?.error || 'Failed to create invoice'); }
+    setInvoiceCreating(false);
+  };
+
+  // Deep-link support — e.g. the Control Tower's "View Source" action lands
+  // here as /asns?id=<asn_id> and should jump straight to that record.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const deepLinkId = searchParams.get('id');
+    if (deepLinkId) openDetail({ id: deepLinkId });
+  }, []);
 
   const handleSaveASN = async () => {
     try {
@@ -191,6 +304,19 @@ export default function ASNs() {
     } catch (err) { message.error(err.response?.data?.error || 'Failed to update match status'); }
   };
 
+  const goToNextStep = async () => {
+    try {
+      await form.validateFields(STEP_FIELDS[currentStep]);
+      setCurrentStep(s => s + 1);
+    } catch {
+      message.error('Please fill all mandatory fields on this step before continuing');
+    }
+  };
+
+  // Steps indicator: always allow jumping back to review a previous step, but
+  // jumping ahead must go through goToNextStep so mandatory fields get checked.
+  const handleStepsChange = (target) => { if (target < currentStep) setCurrentStep(target); };
+
   const updateLineItem = (i, field, value) => {
     setLineItems(lineItems.map((item, idx) => {
       if (idx !== i) return item;
@@ -214,11 +340,89 @@ export default function ASNs() {
             {user.role === 'vendor' && selected.status === 'draft' && <Button icon={<EditOutlined />} onClick={openEdit}>Edit</Button>}
             {user.role === 'vendor' && selected.status === 'draft' && <Button type="primary" onClick={() => handleAction('submit')}>Submit ASN</Button>}
             {user.role !== 'vendor' && selected.status === 'submitted' && <Button type="primary" icon={<CheckOutlined />} onClick={() => handleAction('validate')}>Validate</Button>}
-            {user.role !== 'vendor' && selected.status === 'submitted' && <Button danger icon={<CloseOutlined />} onClick={() => setRejectModalOpen(true)}>Reject</Button>}
+            {user.role !== 'vendor' && selected.status === 'submitted' && <Button danger icon={<CloseOutlined />} onClick={() => setRejectModalOpen(o => !o)}>Reject</Button>}
+            {user.role !== 'vendor' && selected.status === 'validated' && !grn && <Button icon={<FileProtectOutlined />} onClick={() => openGrnPanel(selected)}>Create GRN</Button>}
+            {user.role !== 'vendor' && grn && !invoice && <Button icon={<FileTextOutlined />} loading={invoiceCreating} onClick={handleCreateInvoice}>Create Invoice</Button>}
             {user.role !== 'vendor' && selected.status === 'validated' && <Button type="primary" icon={<SendOutlined />} style={{ background: '#52c41a' }} onClick={() => handleAction('post')}>Post to ERP</Button>}
-            {user.role === 'procurement_admin' && <Button icon={<AuditOutlined />} onClick={openMatchModal}>3-Way Match</Button>}
+            {user.role === 'procurement_admin' && <Button icon={<AuditOutlined />} onClick={() => (matchModalOpen ? setMatchModalOpen(false) : openMatchModal())}>3-Way Match</Button>}
           </Space>
         </div>
+
+        <InlineExpandPanel
+          open={rejectModalOpen}
+          title="Reject ASN"
+          description="Please provide a reason for rejecting this ASN."
+          submitText="Reject"
+          submitDanger
+          onCancel={() => { setRejectModalOpen(false); setRejectReason(''); }}
+          onSubmit={() => handleAction('reject')}
+        >
+          <Input.TextArea rows={3} placeholder="Enter rejection reason (mandatory)" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
+        </InlineExpandPanel>
+
+        <InlineExpandPanel
+          open={matchModalOpen}
+          title="3-Way Match — PO vs ASN vs Invoice"
+          onCancel={() => setMatchModalOpen(false)}
+          onSubmit={handleThreeWayMatch}
+          submitText="Save"
+        >
+          <Form layout="vertical">
+            <Form.Item label="Match Status">
+              <Select value={matchStatus} onChange={setMatchStatus} options={[
+                { value: 'matched', label: 'Matched' },
+                { value: 'mismatched', label: 'Mismatched' },
+                { value: 'pending', label: 'Pending' },
+              ]} />
+            </Form.Item>
+            <Form.Item>
+              <Checkbox checked={matchDiscrepancyFlag} onChange={e => setMatchDiscrepancyFlag(e.target.checked)}>Discrepancy Found</Checkbox>
+            </Form.Item>
+            <Form.Item label="Discrepancy Reason">
+              <Input.TextArea rows={3} placeholder="Describe the discrepancy (if any)" value={matchDiscrepancyReason} onChange={e => setMatchDiscrepancyReason(e.target.value)} />
+            </Form.Item>
+          </Form>
+        </InlineExpandPanel>
+
+        <InlineExpandPanel
+          open={grnPanelOpen}
+          title="Create Goods Receipt Note"
+          description="Capture what was actually received and inspected per line. A line deviating from the shipped quantity by more than the configured tolerance, or with any rejected quantity, will flag the GRN for exception review and block ERP posting until resolved."
+          submitText="Create GRN"
+          loading={grnSaving}
+          onCancel={() => setGrnPanelOpen(false)}
+          onSubmit={handleSaveGrn}
+        >
+          <Form.Item label="Received Date" required>
+            <DatePicker style={{ width: 240 }} value={grnReceivedDate} onChange={setGrnReceivedDate} />
+          </Form.Item>
+          <Table
+            size="small"
+            pagination={false}
+            rowKey="asn_line_item_id"
+            dataSource={grnLineInputs}
+            columns={[
+              { title: 'Description', dataIndex: 'description' },
+              { title: 'Shipped', dataIndex: 'shipped_quantity', width: 90 },
+              {
+                title: 'Received', key: 'received', width: 110,
+                render: (_, r, i) => <InputNumber min={0} style={{ width: '100%' }} value={r.received_quantity} onChange={v => updateGrnLine(i, 'received_quantity', v)} />,
+              },
+              {
+                title: 'Rejected', key: 'rejected', width: 110,
+                render: (_, r, i) => <InputNumber min={0} max={r.received_quantity} style={{ width: '100%' }} value={r.rejected_quantity} onChange={v => updateGrnLine(i, 'rejected_quantity', v)} />,
+              },
+              { title: 'Accepted', key: 'accepted', width: 90, render: (_, r) => Math.max(0, Number(r.received_quantity || 0) - Number(r.rejected_quantity || 0)) },
+              {
+                title: 'Rejection Reason', key: 'reason',
+                render: (_, r, i) => <Input placeholder={Number(r.rejected_quantity) > 0 ? 'Required' : 'Not applicable'} disabled={!r.rejected_quantity} value={r.rejection_reason} onChange={e => updateGrnLine(i, 'rejection_reason', e.target.value)} />,
+              },
+            ]}
+            style={{ marginBottom: 16 }}
+          />
+          <Input.TextArea rows={2} placeholder="Remarks (optional)" value={grnRemarks} onChange={e => setGrnRemarks(e.target.value)} />
+        </InlineExpandPanel>
+
         <Row gutter={[16, 16]}>
           <Col span={8}><Card size="small"><Text type="secondary">PO Number</Text><br /><Text strong>{selected.po_number || '—'}</Text></Card></Col>
           <Col span={8}><Card size="small"><Text type="secondary">Invoice Number</Text><br /><Text strong>{selected.invoice_number}</Text></Card></Col>
@@ -257,28 +461,75 @@ export default function ASNs() {
             ]} />
           </Card>
         )}
-        <Drawer title="3-Way Match — PO vs ASN vs Invoice" open={matchModalOpen} onClose={() => setMatchModalOpen(false)} width={480} footer={
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setMatchModalOpen(false)}>Cancel</Button>
-            <Button type="primary" onClick={handleThreeWayMatch}>Save</Button>
-          </Space>
-        }>
-          <Form layout="vertical">
-            <Form.Item label="Match Status">
-              <Select value={matchStatus} onChange={setMatchStatus} options={[
-                { value: 'matched', label: 'Matched' },
-                { value: 'mismatched', label: 'Mismatched' },
-                { value: 'pending', label: 'Pending' },
-              ]} />
-            </Form.Item>
-            <Form.Item>
-              <Checkbox checked={matchDiscrepancyFlag} onChange={e => setMatchDiscrepancyFlag(e.target.checked)}>Discrepancy Found</Checkbox>
-            </Form.Item>
-            <Form.Item label="Discrepancy Reason">
-              <Input.TextArea rows={3} placeholder="Describe the discrepancy (if any)" value={matchDiscrepancyReason} onChange={e => setMatchDiscrepancyReason(e.target.value)} />
-            </Form.Item>
-          </Form>
-        </Drawer>
+
+        {/* Goods Receipt Note — what was actually received & inspected, distinct
+            from the ASN's own (vendor-declared) shipped quantity above. */}
+        {(grnLoading || grn) && (
+          <Card
+            title="Goods Receipt Note"
+            size="small"
+            style={{ marginTop: 16 }}
+            loading={grnLoading}
+            extra={grn && <Tag color={grn.status === 'completed' ? 'green' : grn.status === 'exception' ? 'red' : 'default'}>{grn.status?.toUpperCase()}</Tag>}
+          >
+            {grn && (
+              <>
+                <Row gutter={[16, 8]} style={{ marginBottom: 12 }}>
+                  <Col span={8}><Text type="secondary">GRN Number</Text><br /><Text strong>{grn.grn_number}</Text></Col>
+                  <Col span={8}><Text type="secondary">Received Date</Text><br /><Text strong>{grn.received_date ? dayjs(grn.received_date).format('DD-MM-YYYY') : '—'}</Text></Col>
+                </Row>
+                {grn.status === 'exception' && (
+                  <Alert type="error" showIcon style={{ marginBottom: 12 }} message="One or more lines exceeded quantity tolerance or had rejections — ERP posting is blocked until resolved." />
+                )}
+                <Table
+                  size="small" pagination={false} rowKey="id" dataSource={grn.line_items || []}
+                  columns={[
+                    { title: 'Shipped', dataIndex: 'shipped_quantity', width: 90 },
+                    { title: 'Received', dataIndex: 'received_quantity', width: 90 },
+                    { title: 'Accepted', dataIndex: 'accepted_quantity', width: 90 },
+                    { title: 'Rejected', dataIndex: 'rejected_quantity', width: 90 },
+                    { title: 'Rejection Reason', dataIndex: 'rejection_reason', render: v => v || <Text type="secondary">—</Text> },
+                    { title: 'Tolerance', dataIndex: 'tolerance_status', width: 130, render: v => <Tag color={v === 'within_tolerance' ? 'green' : 'red'}>{v === 'within_tolerance' ? 'Within Tolerance' : 'Exceeds Tolerance'}</Tag> },
+                  ]}
+                />
+              </>
+            )}
+          </Card>
+        )}
+
+        {/* Invoice — formalizes the ASN's own invoice fields and runs the real
+            PO vs. GRN vs. Invoice 3-way match (separate from the simpler manual
+            3-Way Match action above, which only compares PO vs. ASN). */}
+        {(invoiceLoading || invoice) && (
+          <Card
+            title="Invoice"
+            size="small"
+            style={{ marginTop: 16 }}
+            loading={invoiceLoading}
+            extra={invoice && <Tag color={invoice.match_status === 'matched' ? 'green' : invoice.match_status === 'blocked' ? 'red' : 'default'}>{invoice.match_status?.toUpperCase()}</Tag>}
+          >
+            {invoice && (
+              <>
+                <Row gutter={[16, 8]} style={{ marginBottom: 12 }}>
+                  <Col span={8}><Text type="secondary">Invoice Number</Text><br /><Text strong>{invoice.invoice_number}</Text></Col>
+                  <Col span={8}><Text type="secondary">Total Amount</Text><br /><Text strong>₹{Number(invoice.total_amount || 0).toLocaleString()}</Text></Col>
+                </Row>
+                {invoice.match_status === 'blocked' && (
+                  <Alert type="error" showIcon style={{ marginBottom: 12 }} message="3-way match blocked" description={invoice.blocked_reason} />
+                )}
+                <Table
+                  size="small" pagination={false} rowKey="id" dataSource={invoice.line_items || []}
+                  columns={[
+                    { title: 'Quantity', dataIndex: 'quantity', width: 100 },
+                    { title: 'Unit Price', dataIndex: 'unit_price', width: 120, render: v => `₹${Number(v).toLocaleString()}` },
+                    { title: 'Amount', dataIndex: 'amount', width: 120, render: v => `₹${Number(v).toLocaleString()}` },
+                    { title: 'Price Deviation', dataIndex: 'price_deviation_pct', render: v => v == null ? <Text type="secondary">No PO price to compare</Text> : <Tag color={Math.abs(v) > 2 ? 'red' : 'green'}>{v > 0 ? '+' : ''}{v}%</Tag> },
+                  ]}
+                />
+              </>
+            )}
+          </Card>
+        )}
       </div>
     );
   }
@@ -293,7 +544,7 @@ export default function ASNs() {
           <Title level={4} style={{ margin: 0 }}>{view === 'edit' ? 'Edit ASN' : 'Create New ASN'}</Title>
         </div>
         <Card size="small" style={{ marginBottom: 16 }}>
-          <Steps current={currentStep} items={steps} onChange={setCurrentStep} size="small" />
+          <Steps current={currentStep} items={steps} onChange={handleStepsChange} size="small" />
         </Card>
         <Card>
           <Form form={form} layout="vertical">
@@ -506,7 +757,7 @@ export default function ASNs() {
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <Button disabled={currentStep === 0} onClick={() => setCurrentStep(s => s - 1)}>Previous</Button>
             <Space>
-              {currentStep < 3 && <Button type="primary" onClick={() => setCurrentStep(s => s + 1)}>Next</Button>}
+              {currentStep < 3 && <Button type="primary" onClick={goToNextStep}>Next</Button>}
               {currentStep === 3 && <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveASN}>{view === 'edit' ? 'Update ASN' : 'Create ASN'}</Button>}
             </Space>
           </div>
@@ -517,26 +768,69 @@ export default function ASNs() {
 
   // ─── LIST VIEW ───
   const columns = [
-    { title: 'ASN #', dataIndex: 'asn_number', width: 140 },
-    ...(user.role !== 'vendor' ? [{ title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true }] : []),
-    { title: 'PO #', dataIndex: 'po_number' },
-    { title: 'Invoice #', dataIndex: 'invoice_number' },
-    { title: 'Amount', dataIndex: 'total_amount', render: v => `₹${Number(v || 0).toLocaleString()}` },
-    { title: 'ETA', dataIndex: 'eta', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—' },
+    { title: 'ASN #', dataIndex: 'asn_number', width: 140, sorter: (a, b) => String(a.asn_number || '').localeCompare(String(b.asn_number || ''), undefined, { numeric: true }) },
+    ...(user.role !== 'vendor' ? [{ title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true, sorter: (a, b) => String(a.vendor_name || '').localeCompare(String(b.vendor_name || '')) }] : []),
+    { title: 'PO #', dataIndex: 'po_number', sorter: (a, b) => String(a.po_number || '').localeCompare(String(b.po_number || ''), undefined, { numeric: true }) },
+    { title: 'Invoice #', dataIndex: 'invoice_number', sorter: (a, b) => String(a.invoice_number || '').localeCompare(String(b.invoice_number || '')) },
+    { title: 'Amount', dataIndex: 'total_amount', render: v => `₹${Number(v || 0).toLocaleString()}`, sorter: (a, b) => Number(a.total_amount || 0) - Number(b.total_amount || 0) },
+    { title: 'ETA', dataIndex: 'eta', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—', sorter: (a, b) => new Date(a.eta || 0) - new Date(b.eta || 0) },
     { title: 'Created', dataIndex: 'created_at', width: 100, sorter: (a, b) => new Date(a.created_at) - new Date(b.created_at), defaultSortOrder: 'descend', render: v => v ? dayjs(v).format('DD-MM-YY') : '—' },
-    { title: 'Status', dataIndex: 'status', width: 110, render: s => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] || s?.toUpperCase()}</Tag> },
+    {
+      title: 'Status', dataIndex: 'status', width: 110, render: s => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] || s?.toUpperCase()}</Tag>,
+      filters: Object.entries(STATUS_LABEL).map(([value, text]) => ({ text, value })),
+      onFilter: (value, row) => row.status === value,
+    },
+    {
+      title: 'Company', dataIndex: 'company_name', width: 130, ellipsis: true,
+      render: (v, row) => (
+        <Space size={4}>
+          {v || <Text type="secondary">—</Text>}
+          <InactiveCompanyBadge show={row.company_is_active === false} />
+        </Space>
+      ),
+    },
+    ...(user.role !== 'vendor' ? [{
+      title: 'Receipt', key: 'grn_status', width: 150,
+      render: (_, row) => {
+        if (row.grn_status === 'completed') return <Tag color="green">GRN Completed</Tag>;
+        if (row.grn_status === 'exception') return <Tag color="red">GRN Exception</Tag>;
+        if (row.status === 'validated') {
+          return (
+            <Button size="small" type="link" style={{ padding: 0 }} onClick={(e) => { e.stopPropagation(); openDetail(row, true); }}>
+              Create GRN
+            </Button>
+          );
+        }
+        return <Text type="secondary">—</Text>;
+      },
+    }] : []),
   ];
+
+  const asnListTitle = user.role === 'vendor' ? 'My ASNs' : 'ASN Management';
+  const asnListSubtitle = user.role === 'vendor'
+    ? 'View and manage your Advance Shipment Notices. Create new ASNs against your Purchase Orders.'
+    : 'Review, validate, and post vendor ASNs to ERP. Track shipment status across all vendors.';
+  const asnListActions = (user.role === 'vendor' || user.role === 'procurement_admin' || user.role === 'mdm_admin')
+    && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Create ASN</Button>;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <Title level={4} style={{ margin: 0 }}>{user.role === 'vendor' ? 'My ASNs' : 'ASN Management'}</Title>
-        {user.role === 'vendor' && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Create ASN</Button>}
-        {(user.role === 'procurement_admin' || user.role === 'mdm_admin') && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Create ASN</Button>}
-      </div>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        {user.role === 'vendor' ? 'View and manage your Advance Shipment Notices. Create new ASNs against your Purchase Orders.' : 'Review, validate, and post vendor ASNs to ERP. Track shipment status across all vendors.'}
-      </Text>
+      {uiImprovementsEnabled ? (
+        <PageHeader
+          items={[{ title: 'Procurement' }, { title: 'ASNs' }]}
+          title={asnListTitle}
+          subtitle={asnListSubtitle}
+          extra={asnListActions}
+        />
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Title level={4} style={{ margin: 0 }}>{asnListTitle}</Title>
+            {asnListActions}
+          </div>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{asnListSubtitle}</Text>
+        </>
+      )}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Row gutter={12} align="middle">
           <Col flex="1"><Input placeholder="Search by Invoice #" allowClear onPressEnter={() => fetchData()} /></Col>
@@ -553,15 +847,6 @@ export default function ASNs() {
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} size="middle"
         pagination={{ ...pagination, showSizeChanger: true, showTotal: t => `${t} ASNs`, onChange: (p, ps) => fetchData(p, ps) }}
         onRow={(record) => ({ onClick: () => openDetail(record), style: { cursor: 'pointer' } })} />
-      <Drawer title="Reject ASN" open={rejectModalOpen} onClose={() => setRejectModalOpen(false)} width={420} footer={
-        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={() => setRejectModalOpen(false)}>Cancel</Button>
-          <Button type="primary" danger onClick={() => handleAction('reject')}>Reject</Button>
-        </Space>
-      }>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>Please provide a reason for rejecting this ASN.</Text>
-        <Input.TextArea rows={3} placeholder="Enter rejection reason (mandatory)" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-      </Drawer>
     </div>
   );
 }

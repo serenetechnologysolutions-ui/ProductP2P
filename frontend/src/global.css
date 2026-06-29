@@ -26,3 +26,15 @@ h5, .ant-typography h5 { font-size: 14px !important; font-weight: 600 !important
 .ant-input::placeholder, .ant-select-selection-placeholder { color: #bfbfbf !important; font-size: 13px !important; }
 .ant-pagination { margin-top: 16px !important; }
 .ant-card-small > .ant-card-body { padding: 12px 16px !important; }
+
+/* Line-Level Approval — a pending, action-required line gets a soft amber
+   wash so it's scannable without opening each row's tooltip. */
+.pr-line-needs-approval > td { background: #fffbe6 !important; }
+.pr-line-needs-approval:hover > td { background: #fff1b8 !important; }
+
+/* Row-priority highlighting — shared across any list table that needs to
+   surface "this record needs attention" via a left accent border rather than
+   a full-row color wash (keeps dense tables readable at a glance). */
+.row-highlight-critical { border-left: 3px solid #ff4d4f; }
+.row-highlight-warning { border-left: 3px solid #faad14; }
+.row-highlight-healthy { border-left: 3px solid #52c41a; }

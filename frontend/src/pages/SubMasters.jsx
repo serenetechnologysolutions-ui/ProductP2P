@@ -5,7 +5,6 @@ const { Title, Text } = Typography;
 
 const CATEGORIES = [
   // ── Vendor classification ──
-  { key: 'company', label: 'Companies' },
   { key: 'department', label: 'Departments' },
   { key: 'supplier_group', label: 'Supplier Groups' },
   { key: 'supplier_category', label: 'Categories' },
@@ -19,6 +18,29 @@ const CATEGORIES = [
   { key: 'country', label: 'Countries' },
   { key: 'state', label: 'States' },
   { key: 'city', label: 'Cities' },
+
+  // ── Item Master ──
+  { key: 'item_category', label: 'Item Categories' },
+  { key: 'item_subcategory', label: 'Item Subcategories' },
+  { key: 'uom', label: 'Units of Measure' },
+
+  // ── Org / Plant / Cost Assignment ──
+  { key: 'plant', label: 'Plants' },
+  { key: 'cost_center', label: 'Cost Centers' },
+  { key: 'storage_location', label: 'Storage Locations' },
+
+  // ── Sourcing & Procurement ──
+  { key: 'procurement_category', label: 'Procurement Categories' },
+  { key: 'hsn_code', label: 'HSN Codes' },
+  { key: 'document_type', label: 'PR Document Types' },
+  { key: 'priority', label: 'Priorities' },
+  { key: 'account_assignment_category', label: 'Account Assignment' },
+  { key: 'currency', label: 'Currencies' },
+  { key: 'incoterms', label: 'Incoterms' },
+
+  // ── Logistics ──
+  { key: 'shipment_mode', label: 'Shipment Modes' },
+  { key: 'ticket_category', label: 'Ticket Categories' },
 ];
 
 export default function SubMasters() {

@@ -5,8 +5,9 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "migrate": "node src/config/migrate.js && node src/config/migrate-advanced.js && node src/config/migrate-rfq.js && node src/config/migrate-v2.js && node src/config/migrate-gap-fields.js && node src/config/migrate-field-requirements.js && node src/config/migrate-pr.js && node src/config/migrate-dropdown-submasters.js && node src/config/migrate-document-flow.js && node src/config/migrate-pr-enhancements.js && node src/config/migrate-po-rfq-link.js",
-    "seed": "node src/config/seed.js && node src/config/seed-advanced.js && node src/config/seed-rfq.js && node src/config/seed-gap-fields.js && node src/config/seed-field-requirements.js && node src/config/seed-pr.js && node src/config/seed-dropdown-submasters.js && node src/config/seed-pr-single-approval.js"
+    "migrate": "node src/config/migrate.js && node src/config/migrate-advanced.js && node src/config/migrate-rfq.js && node src/config/migrate-v2.js && node src/config/migrate-gap-fields.js && node src/config/migrate-field-requirements.js && node src/config/migrate-pr.js && node src/config/migrate-dropdown-submasters.js && node src/config/migrate-document-flow.js && node src/config/migrate-pr-enhancements.js && node src/config/migrate-po-rfq-link.js && node src/config/migrate-procurement-insights.js && node src/config/migrate-exception-management.js && node src/config/migrate-traceability.js && node src/config/migrate-vendor-compliance.js && node src/config/migrate-vendor-segmentation.js && node src/config/migrate-budget-commitment.js && node src/config/migrate-pr-line-approval.js && node src/config/migrate-rfq-negotiation.js && node src/config/migrate-contract-consumption.js && node src/config/migrate-po-versioning.js && node src/config/migrate-asn-grn-invoice.js && node src/config/migrate-workflow-engine-enhancements.js && node src/config/migrate-field-config-enhancements.js && node src/config/migrate-feature-flags.js && node src/config/migrate-feature-flag-lifecycle.js && node src/config/migrate-procurement-os.js && node src/config/migrate-pr-closure.js && node src/config/migrate-multi-company-isolation.js && node src/config/migrate-item-company-mapping.js",
+    "seed": "node src/config/seed.js && node src/config/seed-advanced.js && node src/config/seed-rfq.js && node src/config/seed-gap-fields.js && node src/config/seed-field-requirements.js && node src/config/seed-pr.js && node src/config/seed-dropdown-submasters.js && node src/config/seed-pr-single-approval.js && node src/config/seed-procurement-os.js",
+    "test": "jest"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -22,6 +23,8 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.3"
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.3",
+    "supertest": "^7.2.2"
   }
 }

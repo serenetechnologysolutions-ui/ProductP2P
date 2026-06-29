@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Row, Col, Card, Drawer, Typography, Tabs, DatePicker, Divider, Popconfirm, Radio, message } from 'antd';
+import { Table, Button, Form, Input, InputNumber, Select, Tag, Space, Row, Col, Card, Typography, Tabs, DatePicker, Divider, Popconfirm, Radio, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/axios';
 import { useFieldConfig } from '../contexts/FieldConfigContext';
+import InlineExpandPanel from '../components/ui/InlineExpandPanel';
+import PageHeader from '../components/ui/PageHeader';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -199,7 +201,7 @@ export default function AuditManagement() {
     } catch (err) { message.error(err.response?.data?.error || 'Failed'); }
   };
 
-  const openCompleteModal = () => { completeForm.resetFields(); setCompleteModal(true); };
+  const toggleCompletePanel = () => { if (!completeModal) completeForm.resetFields(); setCompleteModal(o => !o); };
 
   const handleCompleteExecution = async () => {
     // Save responses first
@@ -269,7 +271,24 @@ export default function AuditManagement() {
           )}
         </Card>
 
-        <Card title="Findings & Corrective Actions" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { findingForm.resetFields(); setFindingModal(true); }}>Add Finding</Button>}>
+        <Card title="Findings & Corrective Actions" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { findingForm.resetFields(); setFindingModal(o => !o); }}>Add Finding</Button>}>
+          <InlineExpandPanel
+            open={findingModal}
+            title="Add Finding"
+            onCancel={() => setFindingModal(false)}
+            onSubmit={handleAddFinding}
+            submitText="Add"
+          >
+            <Form form={findingForm} layout="vertical">
+              <Form.Item name="description" label="Finding Description" rules={[{ required: isFindingFieldRequired('description', true), message: 'Finding Description is required' }]}><TextArea rows={3} placeholder="Describe the finding" /></Form.Item>
+              <Form.Item name="severity" label="Severity" rules={[{ required: isFindingFieldRequired('severity', true), message: 'Severity is required' }]}>
+                <Select placeholder="Select severity" options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }]} />
+              </Form.Item>
+              <Form.Item name="assigned_to" label="Assign Corrective Action To" rules={[{ required: isFindingFieldRequired('assigned_to', false), message: 'Assign Corrective Action To is required' }]}><Input placeholder="Person or team responsible" /></Form.Item>
+              <Form.Item name="capa_action_owner" label="CAPA Action Owner" rules={[{ required: isFindingFieldRequired('capa_action_owner', false), message: 'CAPA Action Owner is required' }]}><Input placeholder="Person or team accountable for the corrective action" /></Form.Item>
+              <Form.Item name="capa_due_date" label="CAPA Due Date" rules={[{ required: isFindingFieldRequired('capa_due_date', false), message: 'CAPA Due Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </Form>
+          </InlineExpandPanel>
           {findings.length === 0 && <Text type="secondary">No findings recorded</Text>}
           {findings.map((f, idx) => (
             <Card key={f.id} size="small" style={{ marginBottom: 8 }}>
@@ -294,69 +313,67 @@ export default function AuditManagement() {
 
         <Divider />
         <Space>
-          <Button type="primary" size="large" icon={<CheckCircleOutlined />} onClick={openCompleteModal}>Complete Audit</Button>
+          <Button type="primary" size="large" icon={<CheckCircleOutlined />} onClick={toggleCompletePanel}>Complete Audit</Button>
           <Popconfirm title="Close this audit? All findings must be resolved." onConfirm={handleCloseExecution}>
             <Button size="large" danger icon={<CheckCircleOutlined />}>Close Audit</Button>
           </Popconfirm>
           <Button size="large" onClick={() => setExecutionDetail(null)}>Cancel</Button>
         </Space>
 
-        <Drawer title="Add Finding" open={findingModal} onClose={() => setFindingModal(false)} width={480} footer={
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setFindingModal(false)}>Cancel</Button>
-            <Button type="primary" onClick={handleAddFinding}>Add</Button>
-          </Space>
-        }>
-          <Form form={findingForm} layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item name="description" label="Finding Description" rules={[{ required: isFindingFieldRequired('description', true), message: 'Finding Description is required' }]}><TextArea rows={3} placeholder="Describe the finding" /></Form.Item>
-            <Form.Item name="severity" label="Severity" rules={[{ required: isFindingFieldRequired('severity', true), message: 'Severity is required' }]}>
-              <Select placeholder="Select severity" options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }]} />
-            </Form.Item>
-            <Form.Item name="assigned_to" label="Assign Corrective Action To" rules={[{ required: isFindingFieldRequired('assigned_to', false), message: 'Assign Corrective Action To is required' }]}><Input placeholder="Person or team responsible" /></Form.Item>
-            <Form.Item name="capa_action_owner" label="CAPA Action Owner" rules={[{ required: isFindingFieldRequired('capa_action_owner', false), message: 'CAPA Action Owner is required' }]}><Input placeholder="Person or team accountable for the corrective action" /></Form.Item>
-            <Form.Item name="capa_due_date" label="CAPA Due Date" rules={[{ required: isFindingFieldRequired('capa_due_date', false), message: 'CAPA Due Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
-          </Form>
-        </Drawer>
-
-        <Drawer title="Complete Audit" open={completeModal} onClose={() => setCompleteModal(false)} width={420} footer={
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setCompleteModal(false)}>Cancel</Button>
-            <Button type="primary" onClick={handleCompleteExecution}>Complete</Button>
-          </Space>
-        }>
-          <Form form={completeForm} layout="vertical" style={{ marginTop: 16 }}>
+        <InlineExpandPanel
+          open={completeModal}
+          title="Complete Audit"
+          onCancel={() => setCompleteModal(false)}
+          onSubmit={handleCompleteExecution}
+          submitText="Complete"
+          style={{ marginTop: 16 }}
+        >
+          <Form form={completeForm} layout="vertical">
             <Form.Item name="audit_score" label="Audit Score (0-100)" rules={[{ required: isCompleteFieldRequired('audit_score', false), message: 'Audit Score is required' }]}><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Overall audit score" /></Form.Item>
             <Form.Item name="compliance_percentage" label="Compliance Percentage (0-100)" rules={[{ required: isCompleteFieldRequired('compliance_percentage', false), message: 'Compliance Percentage is required' }]}><InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="Compliance %" /></Form.Item>
           </Form>
-        </Drawer>
+        </InlineExpandPanel>
       </div>
     );
   }
 
   // ─── MAIN VIEW WITH TABS ───
   const checklistColumns = [
-    { title: 'Name', dataIndex: 'name', render: v => <Text strong>{v}</Text> },
-    { title: 'Category', dataIndex: 'category', render: v => v ? <Tag color="blue">{v}</Tag> : '—' },
-    { title: 'Items Count', render: (_, r) => (r.items || []).length },
+    { title: 'Name', dataIndex: 'name', render: v => <Text strong>{v}</Text>, sorter: (a, b) => String(a.name || '').localeCompare(String(b.name || '')) },
+    {
+      title: 'Category', dataIndex: 'category', render: v => v ? <Tag color="blue">{v}</Tag> : '—',
+      sorter: (a, b) => String(a.category || '').localeCompare(String(b.category || '')),
+    },
+    { title: 'Items Count', render: (_, r) => (r.items || []).length, sorter: (a, b) => (a.items || []).length - (b.items || []).length },
     { title: 'Description', dataIndex: 'description', ellipsis: true },
   ];
 
   const scheduleColumns = [
-    { title: 'Checklist', dataIndex: 'checklist_name' },
+    { title: 'Checklist', dataIndex: 'checklist_name', sorter: (a, b) => String(a.checklist_name || '').localeCompare(String(b.checklist_name || '')) },
     { title: 'Vendor/Group', render: (_, r) => r.vendor_id ? vendors.find(v => v.id === r.vendor_id)?.vendor_name || '—' : <Tag>{r.vendor_group || 'All'}</Tag> },
-    { title: 'Frequency', dataIndex: 'frequency', render: v => <Tag color="purple">{v?.replace('_', ' ')?.toUpperCase()}</Tag> },
-    { title: 'From', dataIndex: 'start_date', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—' },
-    { title: 'To', dataIndex: 'end_date', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—' },
+    { title: 'Frequency', dataIndex: 'frequency', render: v => <Tag color="purple">{v?.replace('_', ' ')?.toUpperCase()}</Tag>, sorter: (a, b) => String(a.frequency || '').localeCompare(String(b.frequency || '')) },
+    { title: 'From', dataIndex: 'start_date', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—', sorter: (a, b) => new Date(a.start_date || 0) - new Date(b.start_date || 0) },
+    { title: 'To', dataIndex: 'end_date', width: 100, render: v => v ? dayjs(v).format('DD-MM-YY') : '—', sorter: (a, b) => new Date(a.end_date || 0) - new Date(b.end_date || 0) },
     { title: 'Audits', render: (_, r) => <Text>{r.completed_audits || 0} / {r.total_audits || 1}</Text> },
-    { title: 'Status', dataIndex: 'status', render: v => <Tag color={v === 'completed' ? 'green' : v === 'in_progress' ? 'blue' : 'default'}>{v?.toUpperCase().replace('_', ' ')}</Tag> },
+    {
+      title: 'Status', dataIndex: 'status', render: v => <Tag color={v === 'completed' ? 'green' : v === 'in_progress' ? 'blue' : 'default'}>{v?.toUpperCase().replace('_', ' ')}</Tag>,
+      sorter: (a, b) => String(a.status || '').localeCompare(String(b.status || '')),
+      filters: ['planned', 'in_progress', 'completed'].map(v => ({ text: v.toUpperCase().replace('_', ' '), value: v })),
+      onFilter: (value, row) => row.status === value,
+    },
   ];
 
   const executionColumns = [
-    { title: 'Checklist', dataIndex: 'checklist_name' },
-    { title: 'Vendor', dataIndex: 'vendor_name', render: v => v || '—' },
-    { title: 'Due Date', dataIndex: 'started_at', width: 110, render: v => v ? dayjs(v).format('DD-MM-YYYY') : '—' },
-    { title: 'Status', dataIndex: 'status', render: v => <Tag color={v === 'closed' ? 'default' : v === 'completed' ? 'green' : v === 'in_progress' ? 'blue' : 'orange'}>{v?.toUpperCase().replace('_', ' ')}</Tag> },
-    { title: 'Completed', dataIndex: 'completed_at', width: 130, render: v => v ? dayjs(v).format('DD-MM-YY HH:mm') : '—' },
+    { title: 'Checklist', dataIndex: 'checklist_name', sorter: (a, b) => String(a.checklist_name || '').localeCompare(String(b.checklist_name || '')) },
+    { title: 'Vendor', dataIndex: 'vendor_name', render: v => v || '—', sorter: (a, b) => String(a.vendor_name || '').localeCompare(String(b.vendor_name || '')) },
+    { title: 'Due Date', dataIndex: 'started_at', width: 110, render: v => v ? dayjs(v).format('DD-MM-YYYY') : '—', sorter: (a, b) => new Date(a.started_at || 0) - new Date(b.started_at || 0) },
+    {
+      title: 'Status', dataIndex: 'status', render: v => <Tag color={v === 'closed' ? 'default' : v === 'completed' ? 'green' : v === 'in_progress' ? 'blue' : 'orange'}>{v?.toUpperCase().replace('_', ' ')}</Tag>,
+      sorter: (a, b) => String(a.status || '').localeCompare(String(b.status || '')),
+      filters: ['planned', 'in_progress', 'completed', 'closed'].map(v => ({ text: v.toUpperCase().replace('_', ' '), value: v })),
+      onFilter: (value, row) => row.status === value,
+    },
+    { title: 'Completed', dataIndex: 'completed_at', width: 130, render: v => v ? dayjs(v).format('DD-MM-YY HH:mm') : '—', sorter: (a, b) => new Date(a.completed_at || 0) - new Date(b.completed_at || 0) },
     { title: 'Actions', width: 140, render: (_, r) => (
       <Space>
         {r.status === 'planned' && <Button size="small" type="primary" onClick={() => handleStartExecution(r.id)}>Start</Button>}
@@ -368,10 +385,12 @@ export default function AuditManagement() {
   ];
 
   return (
-    <div>
-      <Title level={4} style={{ margin: 0 }}>Audit Management</Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>Create checklists, schedule audits, execute with checklist responses, and track findings.</Text>
-      <Divider style={{ margin: '12px 0' }} />
+    <div style={{ padding: '24px' }}>
+      <PageHeader
+        items={[{ title: 'Compliance' }, { title: 'Audit Management' }]}
+        title="Audit Management"
+        subtitle="Create checklists, schedule audits, execute with checklist responses, and track findings."
+      />
       <Tabs defaultActiveKey="checklists" onChange={(key) => {
         if (key === 'schedules' && schedules.length === 0) fetchSchedules();
         if (key === 'executions' && executions.length === 0) fetchExecutions();
@@ -406,6 +425,31 @@ export default function AuditManagement() {
             ) : (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><Button type="primary" icon={<PlusOutlined />} onClick={openAddChecklist}>Add Checklist</Button></div>
+
+                <InlineExpandPanel
+                  open={checklistModal}
+                  title={editingChecklist ? 'Edit Checklist' : 'Create Checklist'}
+                  onCancel={() => setChecklistModal(false)}
+                  onSubmit={handleSaveChecklist}
+                  submitText={editingChecklist ? 'Update' : 'Create'}
+                >
+                  <Form form={checklistForm} layout="vertical">
+                    <Form.Item name="name" label="Checklist Name" rules={[{ required: isChecklistFieldRequired('name', true), message: 'Checklist Name is required' }]}><Input placeholder="e.g. Quality Compliance Audit" /></Form.Item>
+                    <Form.Item name="description" label="Description" rules={[{ required: isChecklistFieldRequired('description', false), message: 'Description is required' }]}><TextArea rows={2} placeholder="Description" /></Form.Item>
+                    <Form.Item name="category" label="Category" rules={[{ required: isChecklistFieldRequired('category', true), message: 'Category is required' }]}>
+                      <Select placeholder="Select" options={[{ value: 'quality', label: 'Quality' }, { value: 'compliance', label: 'Compliance' }, { value: 'safety', label: 'Safety' }, { value: 'environmental', label: 'Environmental' }, { value: 'general', label: 'General' }]} />
+                    </Form.Item>
+                    <Divider orientation="left">Checklist Items</Divider>
+                    {checklistItems.map((item, idx) => (
+                      <Row key={idx} gutter={8} style={{ marginBottom: 8 }}>
+                        <Col flex="1"><Input placeholder={`Item ${idx + 1}`} value={item} onChange={e => { const u = [...checklistItems]; u[idx] = e.target.value; setChecklistItems(u); }} /></Col>
+                        <Col><Button icon={<DeleteOutlined />} danger onClick={() => setChecklistItems(checklistItems.filter((_, i) => i !== idx))} disabled={checklistItems.length === 1} /></Col>
+                      </Row>
+                    ))}
+                    <Button type="dashed" onClick={() => setChecklistItems([...checklistItems, ''])} icon={<PlusOutlined />} block>Add Item</Button>
+                  </Form>
+                </InlineExpandPanel>
+
                 <Table columns={checklistColumns} dataSource={checklists} rowKey="id" loading={checklistLoading} size="middle"
                   onRow={(record) => ({ onClick: () => openChecklistDetail(record), style: { cursor: 'pointer' } })} />
               </div>
@@ -414,7 +458,29 @@ export default function AuditManagement() {
         )},
         { key: 'schedules', label: 'Schedules', children: (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><Button type="primary" icon={<PlusOutlined />} onClick={() => { scheduleForm.resetFields(); setScheduleModal(true); }}>Create Schedule</Button></div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><Button type="primary" icon={<PlusOutlined />} onClick={() => { scheduleForm.resetFields(); setScheduleModal(o => !o); }}>Create Schedule</Button></div>
+
+            <InlineExpandPanel
+              open={scheduleModal}
+              title="Create Schedule"
+              onCancel={() => setScheduleModal(false)}
+              onSubmit={handleCreateSchedule}
+              submitText="Create"
+            >
+              <Form form={scheduleForm} layout="vertical">
+                <Form.Item name="checklist_id" label="Checklist" rules={[{ required: isScheduleFieldRequired('checklist_id', true), message: 'Checklist is required' }]}><Select placeholder="Select" options={checklists.map(c => ({ value: c.id, label: c.name }))} /></Form.Item>
+                <Form.Item name="vendor_id" label="Vendor (optional)" rules={[{ required: isScheduleFieldRequired('vendor_id', false), message: 'Vendor is required' }]}><Select placeholder="Select vendor" allowClear options={vendors.map(v => ({ value: v.id, label: v.vendor_name }))} /></Form.Item>
+                <Form.Item name="vendor_group" label="Or Vendor Group" rules={[{ required: isScheduleFieldRequired('vendor_group', false), message: 'Vendor Group is required' }]}><Input placeholder="e.g. Tier 1" /></Form.Item>
+                <Form.Item name="frequency" label="Frequency" rules={[{ required: isScheduleFieldRequired('frequency', true), message: 'Frequency is required' }]}>
+                  <Select placeholder="Select" options={[{ value: 'one_time', label: 'One Time' }, { value: 'weekly', label: 'Weekly' }, { value: 'monthly', label: 'Monthly' }, { value: 'quarterly', label: 'Quarterly' }]} />
+                </Form.Item>
+                <Row gutter={16}>
+                  <Col span={12}><Form.Item name="start_date" label="From Date" rules={[{ required: isScheduleFieldRequired('start_date', true), message: 'From Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={12}><Form.Item name="end_date" label="To Date" rules={[{ required: isScheduleFieldRequired('end_date', true), message: 'To Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                </Row>
+              </Form>
+            </InlineExpandPanel>
+
             <Table columns={scheduleColumns} dataSource={schedules} rowKey="id" loading={scheduleLoading} size="middle" />
           </div>
         )},
@@ -422,51 +488,6 @@ export default function AuditManagement() {
           <Table columns={executionColumns} dataSource={executions} rowKey="id" loading={executionLoading} size="middle" />
         )},
       ]} />
-
-      {/* Checklist Drawer */}
-      <Drawer title={editingChecklist ? 'Edit Checklist' : 'Create Checklist'} open={checklistModal} onClose={() => setChecklistModal(false)} width={600} footer={
-        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={() => setChecklistModal(false)}>Cancel</Button>
-          <Button type="primary" onClick={handleSaveChecklist}>{editingChecklist ? 'Update' : 'Create'}</Button>
-        </Space>
-      }>
-        <Form form={checklistForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="Checklist Name" rules={[{ required: isChecklistFieldRequired('name', true), message: 'Checklist Name is required' }]}><Input placeholder="e.g. Quality Compliance Audit" /></Form.Item>
-          <Form.Item name="description" label="Description" rules={[{ required: isChecklistFieldRequired('description', false), message: 'Description is required' }]}><TextArea rows={2} placeholder="Description" /></Form.Item>
-          <Form.Item name="category" label="Category" rules={[{ required: isChecklistFieldRequired('category', true), message: 'Category is required' }]}>
-            <Select placeholder="Select" options={[{ value: 'quality', label: 'Quality' }, { value: 'compliance', label: 'Compliance' }, { value: 'safety', label: 'Safety' }, { value: 'environmental', label: 'Environmental' }, { value: 'general', label: 'General' }]} />
-          </Form.Item>
-          <Divider orientation="left">Checklist Items</Divider>
-          {checklistItems.map((item, idx) => (
-            <Row key={idx} gutter={8} style={{ marginBottom: 8 }}>
-              <Col flex="1"><Input placeholder={`Item ${idx + 1}`} value={item} onChange={e => { const u = [...checklistItems]; u[idx] = e.target.value; setChecklistItems(u); }} /></Col>
-              <Col><Button icon={<DeleteOutlined />} danger onClick={() => setChecklistItems(checklistItems.filter((_, i) => i !== idx))} disabled={checklistItems.length === 1} /></Col>
-            </Row>
-          ))}
-          <Button type="dashed" onClick={() => setChecklistItems([...checklistItems, ''])} icon={<PlusOutlined />} block>Add Item</Button>
-        </Form>
-      </Drawer>
-
-      {/* Schedule Drawer */}
-      <Drawer title="Create Schedule" open={scheduleModal} onClose={() => setScheduleModal(false)} width={500} footer={
-        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={() => setScheduleModal(false)}>Cancel</Button>
-          <Button type="primary" onClick={handleCreateSchedule}>Create</Button>
-        </Space>
-      }>
-        <Form form={scheduleForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="checklist_id" label="Checklist" rules={[{ required: isScheduleFieldRequired('checklist_id', true), message: 'Checklist is required' }]}><Select placeholder="Select" options={checklists.map(c => ({ value: c.id, label: c.name }))} /></Form.Item>
-          <Form.Item name="vendor_id" label="Vendor (optional)" rules={[{ required: isScheduleFieldRequired('vendor_id', false), message: 'Vendor is required' }]}><Select placeholder="Select vendor" allowClear options={vendors.map(v => ({ value: v.id, label: v.vendor_name }))} /></Form.Item>
-          <Form.Item name="vendor_group" label="Or Vendor Group" rules={[{ required: isScheduleFieldRequired('vendor_group', false), message: 'Vendor Group is required' }]}><Input placeholder="e.g. Tier 1" /></Form.Item>
-          <Form.Item name="frequency" label="Frequency" rules={[{ required: isScheduleFieldRequired('frequency', true), message: 'Frequency is required' }]}>
-            <Select placeholder="Select" options={[{ value: 'one_time', label: 'One Time' }, { value: 'weekly', label: 'Weekly' }, { value: 'monthly', label: 'Monthly' }, { value: 'quarterly', label: 'Quarterly' }]} />
-          </Form.Item>
-          <Row gutter={16}>
-            <Col span={12}><Form.Item name="start_date" label="From Date" rules={[{ required: isScheduleFieldRequired('start_date', true), message: 'From Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="end_date" label="To Date" rules={[{ required: isScheduleFieldRequired('end_date', true), message: 'To Date is required' }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-          </Row>
-        </Form>
-      </Drawer>
     </div>
   );
 }

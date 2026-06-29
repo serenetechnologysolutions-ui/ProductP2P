@@ -2,8 +2,12 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../../config/database');
 const { asyncHandler } = require('../../common/middleware');
-const { ValidationError, NotFoundError, AuthorizationError } = require('../../common/errors');
+const { ValidationError, NotFoundError } = require('../../common/errors');
 const { authenticate, requireRole } = require('../auth/auth.middleware');
+const { withTransaction } = require('../../common/db');
+const {
+  validateStepDefinitions, createWorkflowInstance, recordStepDecision, getInstanceApprovals, checkSlaEscalations,
+} = require('./workflow-engine.service');
 
 const router = express.Router();
 
@@ -35,26 +39,43 @@ router.post('/', authenticate, requireRole('mdm_admin', 'procurement_admin'), as
   if (!steps || !Array.isArray(steps) || steps.length === 0) missing.push('steps');
   if (missing.length > 0) throw new ValidationError('Missing required fields', missing);
 
-  const workflowId = uuidv4();
-  await pool.query(
-    'INSERT INTO workflow_master (id, name, module_name, description, created_by) VALUES (?, ?, ?, ?, ?)',
-    [workflowId, name, module_name, description || null, req.user.id]
-  );
+  // Conditional workflows + parallel approvals: step_order defaults to the
+  // step's position (sequential, one approver each — unchanged default
+  // behavior) but callers can explicitly group steps under the same
+  // step_order with is_parallel: true to require simultaneous approval.
+  const stepsWithOrder = steps.map((step, i) => ({ ...step, step_order: step.step_order ?? i + 1 }));
+  validateStepDefinitions(stepsWithOrder);
 
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    if (!step.step_name || !step.approver_role) throw new ValidationError('Each step requires step_name and approver_role');
-    await pool.query(
-      'INSERT INTO workflow_steps (id, workflow_id, step_order, step_name, approver_role, sla_hours) VALUES (?, ?, ?, ?, ?, ?)',
-      [uuidv4(), workflowId, i + 1, step.step_name, step.approver_role, step.sla_hours ?? 24]
+  const workflowId = uuidv4();
+  await withTransaction(async (conn) => {
+    await conn.query(
+      'INSERT INTO workflow_master (id, name, module_name, description, created_by) VALUES (?, ?, ?, ?, ?)',
+      [workflowId, name, module_name, description || null, req.user.id]
     );
-  }
+
+    for (const step of stepsWithOrder) {
+      if (!step.step_name || !step.approver_role) throw new ValidationError('Each step requires step_name and approver_role');
+      await conn.query(
+        `INSERT INTO workflow_steps (id, workflow_id, step_order, step_name, approver_role, sla_hours, condition_rule, is_parallel, escalation_role)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuidv4(), workflowId, step.step_order, step.step_name, step.approver_role, step.sla_hours ?? 24,
+          step.condition_rule ? JSON.stringify(step.condition_rule) : null, !!step.is_parallel, step.escalation_role || null,
+        ]
+      );
+    }
+  });
 
   res.status(201).json({ success: true, data: { id: workflowId } });
 }));
 
 // GET /api/workflow/instances — list workflow instances (optional filters), with workflow + current step names
 router.get('/instances', authenticate, requireRole('mdm_admin', 'procurement_admin'), asyncHandler(async (req, res) => {
+  // SLA Escalation: no background scheduler exists in this codebase, so the
+  // sweep runs lazily whenever someone is actually looking at the workflow
+  // dashboard — best-effort, never blocks the list view if it fails.
+  try { await checkSlaEscalations(); } catch { /* swept again on next view */ }
+
   const { module_name, record_id, status } = req.query;
   let sql = `SELECT i.*, w.name as workflow_name, s.step_name as current_step_name
              FROM workflow_instances i
@@ -90,7 +111,12 @@ router.get('/instances/:id', authenticate, requireRole('mdm_admin', 'procurement
     [id]
   );
 
-  res.json({ success: true, data: { ...rows[0], logs } });
+  // Parallel approvals: the current wave's per-step breakdown (who's
+  // approved, who's still pending, who's overdue) — empty for instances that
+  // predate this enhancement and never advanced through a tracked wave.
+  const approvals = await getInstanceApprovals(id);
+
+  res.json({ success: true, data: { ...rows[0], logs, approvals } });
 }));
 
 // GET /api/workflow/:id — workflow definition detail with steps
@@ -110,22 +136,30 @@ router.put('/:id', authenticate, requireRole('mdm_admin', 'procurement_admin'), 
   const [existing] = await pool.query('SELECT id FROM workflow_master WHERE id = ?', [id]);
   if (existing.length === 0) throw new NotFoundError('Workflow not found');
 
-  await pool.query(
-    'UPDATE workflow_master SET name = COALESCE(?, name), description = COALESCE(?, description), is_active = COALESCE(?, is_active) WHERE id = ?',
-    [name, description, is_active, id]
-  );
+  await withTransaction(async (conn) => {
+    await conn.query(
+      'UPDATE workflow_master SET name = COALESCE(?, name), description = COALESCE(?, description), is_active = COALESCE(?, is_active) WHERE id = ?',
+      [name, description, is_active, id]
+    );
 
-  if (steps && Array.isArray(steps)) {
-    await pool.query('DELETE FROM workflow_steps WHERE workflow_id = ?', [id]);
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      if (!step.step_name || !step.approver_role) throw new ValidationError('Each step requires step_name and approver_role');
-      await pool.query(
-        'INSERT INTO workflow_steps (id, workflow_id, step_order, step_name, approver_role, sla_hours) VALUES (?, ?, ?, ?, ?, ?)',
-        [uuidv4(), id, i + 1, step.step_name, step.approver_role, step.sla_hours ?? 24]
-      );
+    if (steps && Array.isArray(steps)) {
+      const stepsWithOrder = steps.map((step, i) => ({ ...step, step_order: step.step_order ?? i + 1 }));
+      validateStepDefinitions(stepsWithOrder);
+
+      await conn.query('DELETE FROM workflow_steps WHERE workflow_id = ?', [id]);
+      for (const step of stepsWithOrder) {
+        if (!step.step_name || !step.approver_role) throw new ValidationError('Each step requires step_name and approver_role');
+        await conn.query(
+          `INSERT INTO workflow_steps (id, workflow_id, step_order, step_name, approver_role, sla_hours, condition_rule, is_parallel, escalation_role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uuidv4(), id, step.step_order, step.step_name, step.approver_role, step.sla_hours ?? 24,
+            step.condition_rule ? JSON.stringify(step.condition_rule) : null, !!step.is_parallel, step.escalation_role || null,
+          ]
+        );
+      }
     }
-  }
+  });
 
   res.json({ success: true, message: 'Workflow updated' });
 }));
@@ -147,97 +181,64 @@ router.delete('/:id', authenticate, requireRole('mdm_admin', 'procurement_admin'
   res.json({ success: true, message: 'Workflow deleted' });
 }));
 
-// POST /api/workflow/:id/instances — kick off a new instance of a workflow (any authenticated role)
+// POST /api/workflow/:id/instances — kick off a new instance of a workflow
+// (any authenticated role). `context` — { total_value, category,
+// vendor_risk_level } — is what conditional steps (value/category/vendor
+// risk) evaluate against; omitting it just means every conditional step is
+// skipped (since a condition referencing missing context never matches).
 router.post('/:id/instances', authenticate, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { module_name, record_id } = req.body;
+  const { module_name, record_id, context } = req.body;
 
   const missing = [];
   if (!module_name) missing.push('module_name');
   if (!record_id) missing.push('record_id');
   if (missing.length > 0) throw new ValidationError('Missing required fields', missing);
 
-  const [workflow] = await pool.query('SELECT id FROM workflow_master WHERE id = ? AND is_active = TRUE', [id]);
-  if (workflow.length === 0) throw new NotFoundError('Workflow not found');
-
-  const [steps] = await pool.query('SELECT id FROM workflow_steps WHERE workflow_id = ? ORDER BY step_order LIMIT 1', [id]);
-  const firstStepId = steps.length > 0 ? steps[0].id : null;
-
-  const instanceId = uuidv4();
-  await pool.query(
-    'INSERT INTO workflow_instances (id, workflow_id, module_name, record_id, current_step_id, initiated_by) VALUES (?, ?, ?, ?, ?, ?)',
-    [instanceId, id, module_name, record_id, firstStepId, req.user.id]
-  );
-
-  await pool.query(
-    'INSERT INTO workflow_logs (id, instance_id, step_id, action, actor_id, remarks) VALUES (?, ?, ?, ?, ?, ?)',
-    [uuidv4(), instanceId, firstStepId, 'started', req.user.id, null]
-  );
-
-  res.status(201).json({ success: true, data: { id: instanceId, current_step_id: firstStepId } });
+  const result = await createWorkflowInstance(id, module_name, record_id, req.user.id, context || null);
+  res.status(201).json({ success: true, data: { id: result.instance_id, ...result } });
 }));
 
-// POST /api/workflow/instances/:id/advance — approve or reject the current step.
-// Only the role assigned as the current step's approver_role (or mdm_admin, as the
-// platform's top-level override) may act on it — otherwise any authenticated user
-// could approve/reject business-critical workflow steps they have no authority over.
+// POST /api/workflow/instances/:id/advance — approve or reject one step
+// within the instance's current wave. Parallel approvals: if the current
+// wave has multiple steps (is_parallel), every one of them must approve
+// (AND-join) before the instance moves on; any single rejection fails the
+// whole instance immediately. Only the role assigned as that step's
+// approver_role (or mdm_admin, as the platform's top-level override) may act
+// on it — otherwise any authenticated user could approve/reject
+// business-critical workflow steps they have no authority over.
 router.post('/instances/:id/advance', authenticate, requireRole('mdm_admin', 'procurement_admin'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { action, remarks } = req.body;
+  const { action, remarks, step_id } = req.body;
 
   if (!action || !['approve', 'reject'].includes(action)) {
     throw new ValidationError("action must be 'approve' or 'reject'");
   }
 
-  const [instances] = await pool.query('SELECT * FROM workflow_instances WHERE id = ?', [id]);
-  if (instances.length === 0) throw new NotFoundError('Workflow instance not found');
-  const instance = instances[0];
+  const [[instance]] = await pool.query('SELECT * FROM workflow_instances WHERE id = ?', [id]);
+  if (!instance) throw new NotFoundError('Workflow instance not found');
 
-  if (instance.status !== 'in_progress') throw new ValidationError(`Instance is not in progress (status: ${instance.status})`);
+  // Sequential (non-parallel) instances can omit step_id — it's
+  // unambiguous which step is being acted on. A parallel wave requires it.
+  const stepId = step_id || instance.current_step_id;
+  if (!stepId) throw new ValidationError('step_id is required');
 
-  const currentStepId = instance.current_step_id;
+  const result = await withTransaction(conn => recordStepDecision(id, stepId, req.user.id, req.user.role, action, remarks, conn));
+  res.json({
+    success: true,
+    message: result.status === 'rejected' ? 'Workflow instance rejected'
+      : result.final ? 'Workflow instance approved'
+      : result.wave_remaining ? `Recorded — ${result.wave_remaining} approval(s) still pending in this wave`
+      : 'Advanced to next step',
+    data: result,
+  });
+}));
 
-  if (currentStepId && req.user.role !== 'mdm_admin') {
-    const [[currentStep]] = await pool.query('SELECT approver_role FROM workflow_steps WHERE id = ?', [currentStepId]);
-    if (currentStep && currentStep.approver_role !== req.user.role) {
-      throw new AuthorizationError(`This step requires approver role '${currentStep.approver_role}'`);
-    }
-  }
-
-  if (action === 'reject') {
-    await pool.query("UPDATE workflow_instances SET status = 'rejected', completed_at = NOW() WHERE id = ?", [id]);
-    await pool.query(
-      'INSERT INTO workflow_logs (id, instance_id, step_id, action, actor_id, remarks) VALUES (?, ?, ?, ?, ?, ?)',
-      [uuidv4(), id, currentStepId, 'rejected', req.user.id, remarks || null]
-    );
-    return res.json({ success: true, message: 'Workflow instance rejected' });
-  }
-
-  // action === 'approve'
-  let nextStep = null;
-  if (currentStepId) {
-    const [[currentStepRow]] = await pool.query('SELECT step_order FROM workflow_steps WHERE id = ?', [currentStepId]);
-    if (currentStepRow) {
-      const [nextSteps] = await pool.query(
-        'SELECT id FROM workflow_steps WHERE workflow_id = ? AND step_order > ? ORDER BY step_order LIMIT 1',
-        [instance.workflow_id, currentStepRow.step_order]
-      );
-      if (nextSteps.length > 0) nextStep = nextSteps[0];
-    }
-  }
-
-  if (nextStep) {
-    await pool.query('UPDATE workflow_instances SET current_step_id = ? WHERE id = ?', [nextStep.id, id]);
-  } else {
-    await pool.query("UPDATE workflow_instances SET status = 'approved', completed_at = NOW(), current_step_id = NULL WHERE id = ?", [id]);
-  }
-
-  await pool.query(
-    'INSERT INTO workflow_logs (id, instance_id, step_id, action, actor_id, remarks) VALUES (?, ?, ?, ?, ?, ?)',
-    [uuidv4(), id, currentStepId, 'approved', req.user.id, remarks || null]
-  );
-
-  res.json({ success: true, message: nextStep ? 'Advanced to next step' : 'Workflow instance approved' });
+// POST /api/workflow/escalations/check — manually run the SLA escalation
+// sweep (also runs lazily from GET /instances).
+router.post('/escalations/check', authenticate, requireRole('mdm_admin'), asyncHandler(async (req, res) => {
+  const escalated = await checkSlaEscalations();
+  res.json({ success: true, data: { escalated_count: escalated.length, escalated } });
 }));
 
 module.exports = router;
