@@ -7,7 +7,7 @@ import {
   AlertOutlined, SafetyOutlined, GlobalOutlined, DollarOutlined,
   ReconciliationOutlined, ApartmentOutlined, FolderOpenOutlined,
   FileTextOutlined, FileDoneOutlined, RadarChartOutlined, NodeIndexOutlined,
-  BarChartOutlined, HistoryOutlined, FileExcelOutlined,
+  BarChartOutlined, HistoryOutlined, FileExcelOutlined, RollbackOutlined, SwapOutlined,
 } from '@ant-design/icons';
 import { useFeatureFlag } from '../../contexts/FeatureFlagsContext';
 
@@ -38,7 +38,8 @@ export default function Sidebar() {
     icon: <ApartmentOutlined />,
     label: 'Governance',
     children: [
-      { key: '/exceptions', icon: <RadarChartOutlined />, label: 'Control Tower' },
+      { key: '/control-tower', icon: <RadarChartOutlined />, label: 'Control Tower' },
+      { key: '/exceptions', icon: <RadarChartOutlined />, label: 'Exceptions' },
       { key: '/traceability', icon: <NodeIndexOutlined />, label: 'Traceability' },
       { key: '/workflow-engine', icon: <ApartmentOutlined />, label: 'Workflow Engine' },
       { key: '/documents', icon: <FolderOpenOutlined />, label: 'Document Center' },
@@ -97,6 +98,9 @@ export default function Sidebar() {
       { key: '/grn', icon: <FileProtectOutlined />, label: 'Goods Receipt' },
       { key: '/purchase-orders', icon: <SolutionOutlined />, label: 'Purchase Orders' },
       { key: '/inventory', icon: <DatabaseOutlined />, label: 'Inventory' },
+      { key: '/batch-inventory', icon: <DatabaseOutlined />, label: 'Batch Inventory' },
+      { key: '/purchase-returns', icon: <RollbackOutlined />, label: 'Purchase Returns' },
+      { key: '/branch-orders', icon: <SwapOutlined />, label: 'Branch Orders' },
       { key: '/extraction-config', icon: <SettingOutlined />, label: 'Extraction Config' },
     ]},
     advancedMenuGroup,
@@ -137,10 +141,10 @@ export default function Sidebar() {
 
   const PATH_TO_GROUP = {
     '/vendors': 'masters', '/sub-masters': 'masters', '/item-master': 'masters', '/procurement-sub-masters': 'masters',
-    '/purchase-requisitions': 'procurement-mgmt', '/rfq': 'procurement-mgmt', '/contracts': 'procurement-mgmt', '/asns': 'procurement-mgmt', '/grn': 'procurement-mgmt', '/purchase-orders': 'procurement-mgmt', '/extraction-config': 'procurement-mgmt', '/inventory': 'procurement-mgmt',
+    '/purchase-requisitions': 'procurement-mgmt', '/rfq': 'procurement-mgmt', '/contracts': 'procurement-mgmt', '/asns': 'procurement-mgmt', '/grn': 'procurement-mgmt', '/purchase-orders': 'procurement-mgmt', '/extraction-config': 'procurement-mgmt', '/inventory': 'procurement-mgmt', '/batch-inventory': 'procurement-mgmt', '/purchase-returns': 'procurement-mgmt', '/branch-orders': 'procurement-mgmt',
     '/change-password': 'settings', '/user-management': 'settings',
     '/audit': 'advanced', '/tickets': 'advanced', '/risk': 'advanced', '/esg': 'advanced', '/pricing': 'advanced',
-    '/workflow-engine': 'governance', '/documents': 'governance', '/exceptions': 'governance', '/traceability': 'governance',
+    '/workflow-engine': 'governance', '/documents': 'governance', '/exceptions': 'governance', '/control-tower': 'governance', '/traceability': 'governance',
     '/vendor/dashboard': 'vendor-portal-v2', '/vendor/performance': 'vendor-portal-v2', '/vendor/transactions': 'vendor-portal-v2',
   };
 

@@ -29,7 +29,13 @@ import DocumentCenter from './pages/DocumentCenter';
 import PR from './pages/PR';
 import Contracts from './pages/Contracts';
 import ExceptionsDashboard from './pages/ExceptionsDashboard';
+import ControlTowerDashboard from './pages/ControlTowerDashboard';
+import RFQComparison from './pages/RFQComparison';
+import TraceabilityGraph from './pages/TraceabilityGraph';
 import TraceabilityView from './pages/TraceabilityView';
+import BatchInventory from './pages/BatchInventory';
+import PurchaseReturns from './pages/PurchaseReturns';
+import BranchOrders from './pages/BranchOrders';
 import VendorPortalDashboard from './pages/VendorPortalDashboard';
 import VendorPortalPerformance from './pages/VendorPortalPerformance';
 import VendorPortalTransactions from './pages/VendorPortalTransactions';
@@ -80,14 +86,20 @@ export default function App() {
           <Route path="purchase-requisitions" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><PR /></RequireRole>} />
           <Route path="contracts" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><Contracts /></RequireRole>} />
           <Route path="rfq" element={<RequireRole roles={['mdm_admin', 'procurement_admin', 'vendor']}><RFQ /></RequireRole>} />
+          <Route path="rfq-comparison" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><RFQComparison /></RequireRole>} />
           <Route path="item-master" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><ItemMaster /></RequireRole>} />
           <Route path="inventory" element={<RequireRole roles={['system_admin', 'procurement_admin']}><Inventory /></RequireRole>} />
           <Route path="grn" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><GRN /></RequireRole>} />
+          <Route path="batch-inventory" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><BatchInventory /></RequireRole>} />
+          <Route path="purchase-returns" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><PurchaseReturns /></RequireRole>} />
+          <Route path="branch-orders" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><BranchOrders /></RequireRole>} />
           <Route path="item-import" element={<RequireRole roles={['mdm_admin', 'system_admin']}><ItemImport /></RequireRole>} />
           <Route path="workflow-engine" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><WorkflowEngine /></RequireRole>} />
           <Route path="documents" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><DocumentCenter /></RequireRole>} />
           <Route path="exceptions" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><ExceptionsDashboard /></RequireRole>} />
+          <Route path="control-tower" element={<RequireRole roles={['mdm_admin', 'procurement_admin', 'system_admin']}><ControlTowerDashboard /></RequireRole>} />
           <Route path="traceability" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><TraceabilityView /></RequireRole>} />
+          <Route path="traceability-graph" element={<RequireRole roles={['mdm_admin', 'procurement_admin']}><TraceabilityGraph /></RequireRole>} />
           <Route path="vendor/dashboard" element={<RequireRole roles={['vendor']}><VendorPortalDashboard /></RequireRole>} />
           <Route path="vendor/performance" element={<RequireRole roles={['vendor']}><VendorPortalPerformance /></RequireRole>} />
           <Route path="vendor/transactions" element={<RequireRole roles={['vendor']}><VendorPortalTransactions /></RequireRole>} />

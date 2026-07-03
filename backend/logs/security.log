@@ -160,3 +160,27 @@
 {"timestamp":"2026-06-29T16:31:19.605Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
 {"timestamp":"2026-06-29T16:35:31.770Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
 {"timestamp":"2026-06-29T17:05:17.744Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-06-29T17:09:40.657Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-06-30T07:07:18.995Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T07:08:19.662Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T07:08:36.192Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:06:08.931Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:15:41.449Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:15:47.715Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:16:21.299Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:18:51.800Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:19:01.037Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:19:12.838Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:19:18.983Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:20:03.489Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:20:20.148Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:20:29.458Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:23:44.346Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-01T09:23:52.466Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-02T03:14:06.700Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-02T05:44:47.538Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-02T12:41:13.520Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-02T12:44:24.243Z","level":"SECURITY","message":"Failed login attempt - user not found","email":"' OR 1=1 --","ip":"::1"}
+{"timestamp":"2026-07-02T12:44:24.582Z","level":"SECURITY","message":"Failed login attempt - user not found","email":"test@test.com","ip":"::1"}
+{"timestamp":"2026-07-02T12:49:10.524Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-03T01:02:36.843Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}

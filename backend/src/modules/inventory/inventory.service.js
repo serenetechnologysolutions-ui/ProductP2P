@@ -2,6 +2,8 @@ const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../../config/database');
 const { ValidationError, NotFoundError } = require('../../common/errors');
 const { onEvent, emitEvent } = require('../../common/eventBus');
+const { logger } = require('../../common/logger');
+const { generateBatchesFromGrn } = require('./batch.service');
 
 // Module 3: Inventory Integration — GRN receipt increases stock (event-driven
 // off GRN_COMPLETED, same decoupling pattern as Module 2's payment
@@ -75,6 +77,14 @@ async function receiveStockFromGrn(payload, conn) {
 
 function registerInventoryEventSubscribers() {
   onEvent('GRN_COMPLETED', 'receiveStockFromGrn', (payload) => receiveStockFromGrn(payload));
+  onEvent('GRN_COMPLETED', 'generateBatchesFromGrn', (payload) => {
+    generateBatchesFromGrn(payload).catch((err) => {
+      logger.warn('Batch generation from GRN failed (non-blocking)', {
+        grnId: payload.record_id,
+        error: err.message,
+      });
+    });
+  });
 }
 
 // Manual stock-out — issuing material to a department/project/manufacturing
