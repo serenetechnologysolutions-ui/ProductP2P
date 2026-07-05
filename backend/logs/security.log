@@ -184,3 +184,6 @@
 {"timestamp":"2026-07-02T12:44:24.582Z","level":"SECURITY","message":"Failed login attempt - user not found","email":"test@test.com","ip":"::1"}
 {"timestamp":"2026-07-02T12:49:10.524Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
 {"timestamp":"2026-07-03T01:02:36.843Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-05T08:05:08.740Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-05T08:05:45.253Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}
+{"timestamp":"2026-07-05T08:08:50.253Z","level":"SECURITY","message":"Running with the insecure default JWT_SECRET — set a unique JWT_SECRET env var before deploying to production"}

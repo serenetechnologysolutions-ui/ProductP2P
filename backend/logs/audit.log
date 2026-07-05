@@ -132,3 +132,4 @@
 {"timestamp":"2026-07-02T12:45:22.572Z","level":"AUDIT","message":"User logged in","userId":"c174c0df-7eac-41c9-b629-ee2f1b4c0ce4","email":"procurementadmin@jc.com","role":"procurement_admin","ip":"::1"}
 {"timestamp":"2026-07-03T01:03:56.981Z","level":"AUDIT","message":"User logged in","userId":"49e3cf54-b11b-4650-8c57-b57f5d286390","email":"sysadmin@procuretrack.com","role":"system_admin","ip":"::1"}
 {"timestamp":"2026-07-03T01:04:11.404Z","level":"AUDIT","message":"User logged in","userId":"bf975d4b-1794-4184-aa4f-24e187b1fdc3","email":"procurementadmin@se.com","role":"procurement_admin","ip":"::1"}
+{"timestamp":"2026-07-05T08:08:59.125Z","level":"AUDIT","message":"User logged in","userId":"c174c0df-7eac-41c9-b629-ee2f1b4c0ce4","email":"procurementadmin@jc.com","role":"procurement_admin","ip":"::1"}
