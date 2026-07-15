@@ -103,14 +103,36 @@ export default function AppLayout() {
         onCollapse={setCollapsed}
         width={230}
         trigger={null}
-        style={{ boxShadow: '2px 0 8px rgba(0,0,0,0.1)' }}
+        style={{ boxShadow: '2px 0 8px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column' }}
       >
         <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
           <Text strong style={{ color: '#fff', fontSize: collapsed ? 14 : 16, letterSpacing: 1 }}>
             {collapsed ? 'PT' : '⚡ ProcureTrack'}
           </Text>
         </div>
-        <Sidebar />
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <Sidebar />
+        </div>
+        {/* Collapse Menu toggle at bottom of sidebar */}
+        <div
+          onClick={() => setCollapsed(!collapsed)}
+          style={{
+            padding: '12px 24px',
+            borderTop: '1px solid rgba(255,255,255,0.1)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            color: 'rgba(255,255,255,0.65)',
+            fontSize: 13,
+            transition: 'color 0.2s',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.65)'}
+        >
+          {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          {!collapsed && <span>Collapse Menu</span>}
+        </div>
       </Sider>
 
       <Layout>
